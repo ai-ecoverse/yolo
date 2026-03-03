@@ -2,20 +2,20 @@
 
 # YOLO - AI CLI Tool Wrapper with Worktree Support
 
-[![22% Vibe_Coded](https://img.shields.io/badge/22%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=claude&logoColor=white)](https://github.com/trieloff/vibe-coded-badge-action)
+[![22% Vibe_Coded](https://img.shields.io/badge/22%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=claude&logoColor=white)](https://github.com/ai-ecoverse/vibe-coded-badge-action)
 
 > "You Only Launch Once... but in an isolated git worktree!"
 
 YOLO is a command-line wrapper for AI coding assistants that automatically adds the appropriate bypass/danger flags and optionally creates isolated git worktrees for agent sessions.
 
-Part of the **[AI Ecoverse](https://github.com/trieloff/ai-ecoverse)** - a comprehensive ecosystem of tools for AI-assisted development:
-- [ai-aligned-git](https://github.com/trieloff/ai-aligned-git) - Git wrapper for safe AI commit practices
-- [ai-aligned-gh](https://github.com/trieloff/ai-aligned-gh) - GitHub CLI wrapper for proper AI attribution
+Part of the **[AI Ecoverse](https://github.com/ai-ecoverse/.github)** - a comprehensive ecosystem of tools for AI-assisted development:
+- [ai-aligned-git](https://github.com/ai-ecoverse/ai-aligned-git) - Git wrapper for safe AI commit practices
+- [ai-aligned-gh](https://github.com/ai-ecoverse/ai-aligned-gh) - GitHub CLI wrapper for proper AI attribution
 - **yolo** - AI CLI launcher with worktree isolation (this project)
-- [vibe-coded-badge-action](https://github.com/trieloff/vibe-coded-badge-action) - Badge showing AI-generated code percentage
-- [gh-workflow-peek](https://github.com/trieloff/gh-workflow-peek) - Smarter GitHub Actions log filtering
-- [upskill](https://github.com/trieloff/upskill) - Install Claude/Agent skills from other repositories
-- [as-a-bot](https://github.com/trieloff/as-a-bot) - GitHub App token broker for proper AI attribution
+- [vibe-coded-badge-action](https://github.com/ai-ecoverse/vibe-coded-badge-action) - Badge showing AI-generated code percentage
+- [gh-workflow-peek](https://github.com/ai-ecoverse/gh-workflow-peek) - Smarter GitHub Actions log filtering
+- [upskill](https://github.com/ai-ecoverse/gh-upskill) - Install Claude/Agent skills from other repositories
+- [as-a-bot](https://github.com/ai-ecoverse/as-a-bot) - GitHub App token broker for proper AI attribution
 
 ## Features
 
@@ -58,13 +58,13 @@ Detected Kimi CLI environment! YOLO is running inside Kimi CLI - enhanced integr
 ### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/trieloff/yolo/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ai-ecoverse/yolo/main/install.sh | sh
 ```
 
 ### Manual Install
 
 ```bash
-git clone https://github.com/trieloff/yolo.git
+git clone https://github.com/ai-ecoverse/yolo.git
 cd yolo
 ./install.sh
 ```
@@ -572,10 +572,10 @@ YOLO works with the following AI coding assistants:
 
 ## Related Projects
 
-- [ai-aligned-git](https://github.com/trieloff/ai-aligned-git) - Constrains AI tools to safer git practices
-- [ai-aligned-gh](https://github.com/trieloff/ai-aligned-gh) - Ensures proper bot attribution for GitHub operations
-- [vibe-coded-badge-action](https://github.com/trieloff/vibe-coded-badge-action) - Badge that visualizes AI contributions in your repo
-- [gh-workflow-peek](https://github.com/trieloff/gh-workflow-peek) - Filter and analyze GitHub Actions logs quickly
+- [ai-aligned-git](https://github.com/ai-ecoverse/ai-aligned-git) - Constrains AI tools to safer git practices
+- [ai-aligned-gh](https://github.com/ai-ecoverse/ai-aligned-gh) - Ensures proper bot attribution for GitHub operations
+- [vibe-coded-badge-action](https://github.com/ai-ecoverse/vibe-coded-badge-action) - Badge that visualizes AI contributions in your repo
+- [gh-workflow-peek](https://github.com/ai-ecoverse/gh-workflow-peek) - Filter and analyze GitHub Actions logs quickly
 
 ## Version History
 

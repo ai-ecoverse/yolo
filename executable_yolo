@@ -155,8 +155,8 @@ Cleanup Mode:
   - Use this to clean up orphaned worktrees from interrupted sessions
 
 Part of the AI-Aligned toolchain. See:
-  https://github.com/trieloff/ai-aligned-git
-  https://github.com/trieloff/ai-aligned-gh
+  https://github.com/ai-ecoverse/ai-aligned-git
+  https://github.com/ai-ecoverse/ai-aligned-gh
 
 EOF
 }

@@ -4,7 +4,7 @@
 # Installs the yolo wrapper to ~/.local/bin/yolo
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/trieloff/yolo/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ai-ecoverse/yolo/main/install.sh | sh
 #   OR
 #   ./install.sh
 #
