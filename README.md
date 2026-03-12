@@ -2,7 +2,7 @@
 
 # YOLO - AI CLI Tool Wrapper with Worktree Support
 
-[![25% Vibe_Coded](https://img.shields.io/badge/25%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=claude&logoColor=white)](https://github.com/trieloff/vibe-coded-badge-action)
+[![25% Vibe_Coded](https://img.shields.io/badge/25%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=claude&logoColor=white)](https://github.com/ai-ecoverse/vibe-coded-badge-action)
 
 > "You Only Launch Once... but in an isolated git worktree!"
 
