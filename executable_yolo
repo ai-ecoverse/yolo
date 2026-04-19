@@ -132,9 +132,9 @@ Examples:
   yolo -e -a                       # Compose prompt in editor, run all agents
   yolo -e claude                   # Compose prompt in editor, run claude
   yolo claude                      # Run claude with --dangerously-skip-permissions
-  yolo -w claude "fix the bug"     # Create worktree, then run claude (prompt for cleanup)
-  yolo -w -c claude "experiment"   # Create worktree, auto-cleanup after
-  yolo -w -nc claude "keep this"   # Create worktree, preserve it after
+  yolo -w claude "fix the bug"     # Use claude's built-in --worktree (claude manages it)
+  yolo -w -c claude "experiment"   # Use claude's built-in --worktree (claude manages it)
+  yolo -w -nc claude "keep this"   # Use claude's built-in --worktree (claude manages it)
   yolo -e codex,claude,gemini      # Compose prompt in editor, run 3 agents in parallel
   yolo copilot chat                # Run copilot chat with safety flags disabled
   yolo aider "add auth"            # Run aider with auto-approval
@@ -1557,12 +1557,20 @@ main() {
         print_info "Will attempt to run it anyway..."
     fi
 
-    # Create worktree if requested
+    # Track whether yolo is managing the worktree itself
+    # claude has built-in --worktree support, so we delegate to it rather than
+    # creating our own worktree
+    local yolo_managed_worktree=false
     if [[ "$use_worktree" == "true" ]]; then
-        if ! create_worktree "$command_name"; then
-            exit 1
+        if [[ "$command_name" == "claude" ]]; then
+            print_info "Delegating worktree management to claude's built-in --worktree support"
+        else
+            if ! create_worktree "$command_name"; then
+                exit 1
+            fi
+            # create_worktree sets YOLO_BRANCH_NAME, YOLO_WORKTREE_PATH, YOLO_REPO_ROOT
+            yolo_managed_worktree=true
         fi
-        # create_worktree sets YOLO_BRANCH_NAME, YOLO_WORKTREE_PATH, YOLO_REPO_ROOT
     fi
 
     # Build the final command (single-agent mode) with agent-specific argument semantics
@@ -1720,6 +1728,22 @@ main() {
                 full_command+=("--print" "$prompt_joined")
             fi
             ;;
+        claude)
+            # claude has native --worktree support; when -w is requested we
+            # delegate worktree creation/cleanup to claude itself rather than
+            # creating one with yolo's own logic.
+            if [[ -n "$flags" ]]; then
+                # shellcheck disable=SC2206
+                local flag_array=($flags)
+                full_command+=("${flag_array[@]}")
+            fi
+            if [[ "$use_worktree" == "true" ]]; then
+                full_command+=("--worktree")
+            fi
+            if (( ${#command_args[@]} )); then
+                full_command+=("${command_args[@]}")
+            fi
+            ;;
         *)
             if [[ -n "$flags" ]]; then
                 # shellcheck disable=SC2206
@@ -1748,8 +1772,9 @@ main() {
     "${full_command[@]}"
     local exit_code=$?
 
-    # Handle cleanup if worktree was created
-    if [[ "$use_worktree" == "true" && -n "$YOLO_BRANCH_NAME" ]]; then
+    # Handle cleanup if yolo created the worktree
+    # (claude's built-in --worktree manages its own cleanup)
+    if [[ "$yolo_managed_worktree" == "true" && -n "$YOLO_BRANCH_NAME" ]]; then
         if [[ "$auto_clean" == "yes" ]]; then
             # Automatic cleanup
             cleanup_worktree "$YOLO_BRANCH_NAME" "$YOLO_WORKTREE_PATH" "$YOLO_REPO_ROOT"
