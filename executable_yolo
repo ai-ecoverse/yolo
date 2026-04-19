@@ -1571,6 +1571,11 @@ main() {
     if [[ "$use_worktree" == "true" ]]; then
         if [[ "$command_name" == "claude" ]]; then
             print_info "Delegating worktree management to claude's built-in --worktree support"
+            # Claude handles its own worktree lifecycle, so yolo's -c/-nc
+            # cleanup flags do not apply in this mode.
+            if [[ -n "$auto_clean" ]]; then
+                print_warning "-c/--clean and -nc/--no-clean are ignored with 'claude -w' (claude manages cleanup)"
+            fi
         else
             if ! create_worktree "$command_name"; then
                 exit 1
@@ -1746,6 +1751,11 @@ main() {
             fi
             if [[ "$use_worktree" == "true" ]]; then
                 full_command+=("--worktree")
+                # --worktree takes an optional [name]; use -- to stop option
+                # parsing so the first prompt arg isn't consumed as the name.
+                if (( ${#command_args[@]} )); then
+                    full_command+=("--")
+                fi
             fi
             if (( ${#command_args[@]} )); then
                 full_command+=("${command_args[@]}")

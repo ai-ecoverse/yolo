@@ -442,6 +442,89 @@ EOF
     rm -f "$test_cmd"
 }
 
+# Test 9: Test yolo -w claude delegates to claude's built-in --worktree
+test_claude_builtin_worktree() {
+    print_test_header "Test 9: Claude Built-in Worktree Delegation"
+
+    # Create a temporary git repository for testing
+    local test_repo="/tmp/yolo_test_claude_$$"
+    mkdir -p "$test_repo"
+    cd "$test_repo"
+
+    # Initialize git repo
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo "test" > README.md
+    git add README.md
+    git commit -q -m "Initial commit"
+
+    # Create a dummy claude command that echoes args (so we can assert pass-through)
+    local claude_cmd="/tmp/claude"
+    cat > "$claude_cmd" << 'EOF'
+#!/bin/bash
+echo "Running in: $PWD"
+echo "Args: $@"
+EOF
+    chmod +x "$claude_cmd"
+
+    # Assertion 1: --worktree is passed through when -w is set
+    run_test
+    local output
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -w claude "fix the bug" 2>&1); then
+        if echo "$output" | grep -F -q -- "--worktree"; then
+            print_pass "yolo -w claude passes through --worktree flag"
+        else
+            print_fail "yolo -w claude should pass --worktree (got: $output)"
+        fi
+    else
+        print_fail "yolo -w claude failed to run"
+    fi
+
+    # Assertion 2: -- separator precedes the prompt so commander does not eat it
+    run_test
+    if echo "$output" | grep -F -q -- "--worktree -- fix the bug"; then
+        print_pass "yolo -w claude inserts -- before prompt to preserve it"
+    else
+        print_fail "yolo -w claude should insert -- before prompt (got: $output)"
+    fi
+
+    # Assertion 3: yolo did NOT create a .yolo/ directory
+    run_test
+    if [[ ! -d "$test_repo/.yolo" ]]; then
+        print_pass "yolo -w claude does not create .yolo/ worktree directory"
+    else
+        print_fail "yolo -w claude should not create .yolo/ directory"
+    fi
+
+    # Assertion 4: yolo did NOT create a git worktree
+    run_test
+    local wt_count
+    wt_count=$(git worktree list | wc -l | tr -d ' ')
+    if [[ "$wt_count" == "1" ]]; then
+        print_pass "yolo -w claude does not invoke git worktree add"
+    else
+        print_fail "yolo -w claude should not create a git worktree (found $wt_count)"
+    fi
+
+    # Assertion 5: yolo claude (without -w) does NOT pass --worktree
+    run_test
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" claude "hello" 2>&1); then
+        if ! echo "$output" | grep -F -q -- "--worktree"; then
+            print_pass "yolo claude (no -w) does not pass --worktree"
+        else
+            print_fail "yolo claude should not pass --worktree without -w (got: $output)"
+        fi
+    else
+        print_fail "yolo claude failed to run"
+    fi
+
+    # Cleanup
+    cd /tmp
+    rm -rf "$test_repo"
+    rm -f "$claude_cmd"
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -483,6 +566,7 @@ main() {
     test_worktree_creation
     test_worktree_no_git_error
     test_argument_preservation
+    test_claude_builtin_worktree
 
     print_summary
 }
