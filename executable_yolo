@@ -81,6 +81,8 @@ Usage: yolo [OPTIONS] [command] [args...]
 
 Options:
   -w, --worktree    Create a git worktree in .yolo/ before running command
+                    (exception: 'claude' delegates to its built-in --worktree,
+                    which manages worktrees under .claude/worktrees/)
   -c, --clean       Automatically clean up worktree after command completes
   -nc, --no-clean   Preserve worktree after command completes (no prompt)
   -e, --editor      Launch \$EDITOR to compose prompt (works in all modes)
@@ -141,11 +143,16 @@ Examples:
   yolo -w aider "implement feature" # Create worktree, run aider with prompt
 
 Worktree Mode:
-  When using -w/--worktree flag:
+  When using -w/--worktree flag (for all commands except 'claude'):
   - Creates .yolo/ directory in repository root
   - Creates branch: <command>-N (where N is the lowest available number)
   - Creates worktree: .yolo/<command>-N
   - Changes to worktree directory before running command
+
+  When using -w/--worktree flag with 'claude':
+  - Delegates worktree management to claude's built-in --worktree flag
+  - Claude creates worktrees under .claude/worktrees/ with its own naming
+  - Claude handles worktree cleanup; yolo's -c/-nc flags do not apply
 
 Cleanup Mode:
   When using -m/--mop flag:
