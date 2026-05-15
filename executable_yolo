@@ -85,8 +85,9 @@ Usage: yolo [OPTIONS] [command] [args...]
 
 Options:
   -w, --worktree    Create a git worktree in .yolo/ before running command
-                    (exception: 'claude' delegates to its built-in --worktree,
-                    which manages worktrees under .claude/worktrees/)
+                    (exceptions: 'claude' and 'grok' delegate to their built-in
+                    worktree support: claude uses .claude/worktrees/, grok uses its
+                    native -w/--worktree mode)
   -c, --clean       Automatically clean up worktree after command completes
   -nc, --no-clean   Preserve worktree after command completes (no prompt)
   -e, --editor      Launch \$EDITOR to compose prompt (works in all modes)
@@ -142,22 +143,25 @@ Examples:
   yolo -w claude "fix the bug"     # Use claude's built-in --worktree (claude manages it)
   yolo -w -c claude "experiment"   # Use claude's built-in --worktree (claude manages it)
   yolo -w -nc claude "keep this"   # Use claude's built-in --worktree (claude manages it)
+  yolo -w grok "implement feature" # Use grok's native -w/--worktree (grok manages it)
   yolo -e codex,claude,gemini      # Compose prompt in editor, run 3 agents in parallel
   yolo copilot chat                # Run copilot chat with safety flags disabled
   yolo aider "add auth"            # Run aider with auto-approval
   yolo -w aider "implement feature" # Create worktree, run aider with prompt
 
 Worktree Mode:
-  When using -w/--worktree flag (for all commands except 'claude'):
+  When using -w/--worktree flag (for commands other than claude or grok):
   - Creates .yolo/ directory in repository root
   - Creates branch: <command>-N (where N is the lowest available number)
   - Creates worktree: .yolo/<command>-N
   - Changes to worktree directory before running command
 
-  When using -w/--worktree flag with 'claude':
-  - Delegates worktree management to claude's built-in --worktree flag
-  - Claude creates worktrees under .claude/worktrees/ with its own naming
-  - Claude handles worktree cleanup; yolo's -c/-nc flags do not apply
+  When using -w/--worktree flag with 'claude' or 'grok':
+  - Delegates worktree management to the tool's native support
+    - claude: uses --worktree (managed under .claude/worktrees/)
+    - grok: uses -w/--worktree (managed by grok's native worktree system)
+  - The tool handles worktree creation, naming, and cleanup
+  - yolo's -c/--clean and -nc/--no-clean flags are ignored in this mode
 
 Cleanup Mode:
   When using -m/--mop flag:
@@ -1578,16 +1582,16 @@ main() {
     fi
 
     # Track whether yolo is managing the worktree itself
-    # claude has built-in --worktree support, so we delegate to it rather than
-    # creating our own worktree
+    # claude and grok have built-in --worktree / -w support, so we delegate
+    # to them rather than creating our own worktree under .yolo/
     local yolo_managed_worktree=false
     if [[ "$use_worktree" == "true" ]]; then
-        if [[ "$command_name" == "claude" ]]; then
-            print_info "Delegating worktree management to claude's built-in --worktree support"
-            # Claude handles its own worktree lifecycle, so yolo's -c/-nc
+        if [[ "$command_name" == "claude" || "$command_name" == "grok" ]]; then
+            print_info "Delegating worktree management to $command_name's built-in worktree support"
+            # These tools handle their own worktree lifecycle, so yolo's -c/-nc
             # cleanup flags do not apply in this mode.
             if [[ -n "$auto_clean" ]]; then
-                print_warning "-c/--clean and -nc/--no-clean are ignored with 'claude -w' (claude manages cleanup)"
+                print_warning "-c/--clean and -nc/--no-clean are ignored with '$command_name -w' ($command_name manages cleanup)"
             fi
         else
             if ! create_worktree "$command_name"; then
@@ -1766,6 +1770,24 @@ main() {
                 full_command+=("--worktree")
                 # --worktree takes an optional [name]; use -- to stop option
                 # parsing so the first prompt arg isn't consumed as the name.
+                if (( ${#command_args[@]} )); then
+                    full_command+=("--")
+                fi
+            fi
+            if (( ${#command_args[@]} )); then
+                full_command+=("${command_args[@]}")
+            fi
+            ;;
+        grok)
+            # grok has native -w/--worktree support; delegate to it when requested
+            if [[ -n "$flags" ]]; then
+                # shellcheck disable=SC2206
+                local flag_array=($flags)
+                full_command+=("${flag_array[@]}")
+            fi
+            if [[ "$use_worktree" == "true" ]]; then
+                full_command+=("-w")
+                # -w/--worktree can take an optional name; use -- to stop parsing
                 if (( ${#command_args[@]} )); then
                     full_command+=("--")
                 fi
