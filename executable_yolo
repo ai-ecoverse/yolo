@@ -106,6 +106,7 @@ Supported Commands:
   aider             Uses --yes-always (requires Ghostty for interactive prompts)
   goose             No extra flags added (prompts passed via stdin)
   auggie            Uses --allow-indexing; adds --print when prompt present
+  grok              Uses --yolo (Grok Build by xAI)
   <other>           Adds --yolo (generic fallback)
 
 Multi-agent Mode:
@@ -311,6 +312,10 @@ get_command_flags() {
             # Auggie uses --allow-indexing to skip indexing confirmation
             echo "--allow-indexing"
             ;;
+        grok)
+            # Grok Build (xAI) supports --yolo for auto-approve all tool calls
+            echo "--yolo"
+            ;;
         *)
             echo "--yolo"
             ;;
@@ -325,7 +330,7 @@ command_exists() {
 # Get all installed supported coding agents
 get_installed_agents() {
     local agents=()
-    local supported_commands=("codex" "claude" "copilot" "droid" "amp" "cursor-agent" "opencode" "qwen" "gemini" "kimi" "crush" "aider" "goose" "auggie")
+    local supported_commands=("codex" "claude" "copilot" "droid" "amp" "cursor-agent" "opencode" "qwen" "gemini" "kimi" "crush" "aider" "goose" "auggie" "grok")
 
     for cmd in "${supported_commands[@]}"; do
         if command_exists "$cmd"; then
@@ -1198,7 +1203,7 @@ pick_random_agent() {
 
     if [[ ${#agents[@]} -eq 0 ]]; then
         print_error "no supported coding agents found in PATH"
-        print_info "Supported agents: codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, kimi, crush, aider, goose, auggie"
+        print_info "Supported agents: codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, kimi, crush, aider, goose, auggie, grok"
         return 1
     fi
 
@@ -1489,7 +1494,7 @@ main() {
         
         if [[ ${#all_agents[@]} -eq 0 ]]; then
             print_error "no supported coding agents found in PATH"
-            print_info "Supported agents: codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, kimi, crush, aider, goose, auggie"
+            print_info "Supported agents: codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, kimi, crush, aider, goose, auggie, grok"
             exit 1
         fi
         
