@@ -317,7 +317,10 @@ get_command_flags() {
             echo "--allow-indexing"
             ;;
         grok)
-            # Grok Build (xAI) supports --yolo for auto-approve all tool calls
+            # Grok Build (xAI) — use --yolo for full auto-approval.
+            # This is the documented CLI flag (see ~/.grok/docs/user-guide/13-headless-mode.md
+            # and 14-agent-mode.md). The underlying config key is permission_mode=always-approve,
+            # but the user-facing flag exposed by the grok binary is --yolo.
             echo "--yolo"
             ;;
         *)
