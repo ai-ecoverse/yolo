@@ -114,7 +114,7 @@ Supported Commands:
   goose             No extra flags added (prompts passed via stdin)
   auggie            Uses --allow-indexing; adds --print when prompt present
   grok              Uses --yolo (Grok Build by xAI)
-  pi                No extra flags (runs as-is; interactive by default, user blesses tool calls; --print for non-interactive single-shot)
+  pi                No extra flags (pi is YOLO by default; auto-approves all tool calls with no permission prompts, matching yolo's intent natively)
   <other>           Adds --yolo (generic fallback)
 
 Multi-agent Mode:
@@ -336,11 +336,9 @@ get_command_flags() {
             echo "--yolo"
             ;;
         pi)
-            # Pi (the coding agent you're running on) has no --yolo-equivalent
-            # auto-approve flag. Pi runs interactively by default and the user
-            # has to bless tool calls. It has --print for non-interactive
-            # single-shot output, but no global yes-everything flag.
-            # Fall back to generic case: no extra flag — pi runs as-is.
+            # Pi is YOLO-by-default natively — no flag needed (auto-approves all
+            # tool calls with no permission prompts, matching yolo's intent).
+            # See https://github.com/earendil-works/pi/discussions/3169 (same as goose)
             echo ""
             ;;
         *)
