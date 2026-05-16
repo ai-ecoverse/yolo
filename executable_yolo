@@ -25,7 +25,7 @@ NC='\033[0m' # No Color
 
 # Single source of truth for supported AI coding agents.
 # This list must be kept in sync with the case arms in get_default_flags().
-SUPPORTED_AGENTS=("codex" "claude" "copilot" "droid" "amp" "cursor-agent" "opencode" "qwen" "gemini" "kimi" "crush" "aider" "goose" "auggie" "grok")
+SUPPORTED_AGENTS=("codex" "claude" "copilot" "droid" "amp" "cursor-agent" "opencode" "qwen" "gemini" "kimi" "crush" "aider" "goose" "auggie" "grok" "pi")
 
 # Enable colored output if stdout is a terminal
 if [[ -t 1 ]]; then
@@ -114,6 +114,7 @@ Supported Commands:
   goose             No extra flags added (prompts passed via stdin)
   auggie            Uses --allow-indexing; adds --print when prompt present
   grok              Uses --yolo (Grok Build by xAI)
+  pi                No extra flags (runs as-is; interactive by default, user blesses tool calls; --print for non-interactive single-shot)
   <other>           Adds --yolo (generic fallback)
 
 Multi-agent Mode:
@@ -333,6 +334,14 @@ get_command_flags() {
             # and 14-agent-mode.md). The underlying config key is permission_mode=always-approve,
             # but the user-facing flag exposed by the grok binary is --yolo.
             echo "--yolo"
+            ;;
+        pi)
+            # Pi (the coding agent you're running on) has no --yolo-equivalent
+            # auto-approve flag. Pi runs interactively by default and the user
+            # has to bless tool calls. It has --print for non-interactive
+            # single-shot output, but no global yes-everything flag.
+            # Fall back to generic case: no extra flag — pi runs as-is.
+            echo ""
             ;;
         *)
             echo "--yolo"

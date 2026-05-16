@@ -227,6 +227,7 @@ Use `--mop` to clean up orphaned worktrees from interrupted sessions or when you
 | `crush` | `--yolo` (+ Ghostty injection when prompt present) |
 | `goose` | *(no flags - prompts passed via stdin)* |
 | `grok` | `--yolo` (Grok Build by xAI) |
+| `pi` | *(no flags - runs interactively by default, user blesses tool calls; has --print for non-interactive single-shot but no auto-approve flag; runs as-is)* |
 | *(other)* | `--yolo` |
 
 ### Examples
