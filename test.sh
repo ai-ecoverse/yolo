@@ -525,6 +525,89 @@ EOF
     rm -f "$claude_cmd"
 }
 
+# Test 10: Test yolo -w droid delegates to droid's built-in -w/--worktree
+test_droid_builtin_worktree() {
+    print_test_header "Test 10: Droid Built-in Worktree Delegation"
+
+    # Create a temporary git repository for testing
+    local test_repo="/tmp/yolo_test_droid_$$"
+    mkdir -p "$test_repo"
+    cd "$test_repo"
+
+    # Initialize git repo
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo "test" > README.md
+    git add README.md
+    git commit -q -m "Initial commit"
+
+    # Create a dummy droid command that echoes args (so we can assert pass-through)
+    local droid_cmd="/tmp/droid"
+    cat > "$droid_cmd" << 'EOF'
+#!/bin/bash
+echo "Running in: $PWD"
+echo "Args: $@"
+EOF
+    chmod +x "$droid_cmd"
+
+    # Assertion 1: -w is passed through when -w is set
+    run_test
+    local output
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -w droid "fix the bug" 2>&1); then
+        if echo "$output" | grep -E -q -- "(^| )-w( |$)"; then
+            print_pass "yolo -w droid passes through -w flag"
+        else
+            print_fail "yolo -w droid should pass -w (got: $output)"
+        fi
+    else
+        print_fail "yolo -w droid failed to run"
+    fi
+
+    # Assertion 2: -- separator precedes the prompt so commander does not eat it
+    run_test
+    if echo "$output" | grep -F -q -- "-w -- fix the bug"; then
+        print_pass "yolo -w droid inserts -- before prompt to preserve it"
+    else
+        print_fail "yolo -w droid should insert -- before prompt (got: $output)"
+    fi
+
+    # Assertion 3: yolo did NOT create a .yolo/ directory
+    run_test
+    if [[ ! -d "$test_repo/.yolo" ]]; then
+        print_pass "yolo -w droid does not create .yolo/ worktree directory"
+    else
+        print_fail "yolo -w droid should not create .yolo/ directory"
+    fi
+
+    # Assertion 4: yolo did NOT create a git worktree
+    run_test
+    local wt_count
+    wt_count=$(git worktree list | wc -l | tr -d ' ')
+    if [[ "$wt_count" == "1" ]]; then
+        print_pass "yolo -w droid does not invoke git worktree add"
+    else
+        print_fail "yolo -w droid should not create a git worktree (found $wt_count)"
+    fi
+
+    # Assertion 5: yolo droid (without -w) does NOT pass -w
+    run_test
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" droid "hello" 2>&1); then
+        if ! echo "$output" | grep -E -q -- "(^|Args: .*) -w( |$)"; then
+            print_pass "yolo droid (no -w) does not pass -w"
+        else
+            print_fail "yolo droid should not pass -w without -w flag (got: $output)"
+        fi
+    else
+        print_fail "yolo droid failed to run"
+    fi
+
+    # Cleanup
+    cd /tmp
+    rm -rf "$test_repo"
+    rm -f "$droid_cmd"
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -567,6 +650,7 @@ main() {
     test_worktree_no_git_error
     test_argument_preservation
     test_claude_builtin_worktree
+    test_droid_builtin_worktree
 
     print_summary
 }
