@@ -85,8 +85,9 @@ Usage: yolo [OPTIONS] [command] [args...]
 
 Options:
   -w, --worktree    Create a git worktree in .yolo/ before running command
-                    (exceptions: 'claude' and 'grok' delegate to their built-in
-                    worktree support: claude uses .claude/worktrees/, grok uses its
+                    (exceptions: 'claude', 'grok', and 'droid' delegate to their
+                    built-in worktree support: claude uses .claude/worktrees/,
+                    grok uses its native -w/--worktree mode, droid uses its
                     native -w/--worktree mode)
   -c, --clean       Automatically clean up worktree after command completes
   -nc, --no-clean   Preserve worktree after command completes (no prompt)
@@ -145,22 +146,24 @@ Examples:
   yolo -w -c claude "experiment"   # Use claude's built-in --worktree (claude manages it)
   yolo -w -nc claude "keep this"   # Use claude's built-in --worktree (claude manages it)
   yolo -w grok "implement feature" # Use grok's native -w/--worktree (grok manages it)
+  yolo -w droid "implement feature" # Use droid's native -w/--worktree (droid manages it)
   yolo -e codex,claude,gemini      # Compose prompt in editor, run 3 agents in parallel
   yolo copilot chat                # Run copilot chat with safety flags disabled
   yolo aider "add auth"            # Run aider with auto-approval
   yolo -w aider "implement feature" # Create worktree, run aider with prompt
 
 Worktree Mode:
-  When using -w/--worktree flag (for commands other than claude or grok):
+  When using -w/--worktree flag (for commands other than claude, grok, or droid):
   - Creates .yolo/ directory in repository root
   - Creates branch: <command>-N (where N is the lowest available number)
   - Creates worktree: .yolo/<command>-N
   - Changes to worktree directory before running command
 
-  When using -w/--worktree flag with 'claude' or 'grok':
+  When using -w/--worktree flag with 'claude', 'grok', or 'droid':
   - Delegates worktree management to the tool's native support
     - claude: uses --worktree (managed under .claude/worktrees/)
     - grok: uses -w/--worktree (managed by grok's native worktree system)
+    - droid: uses -w/--worktree (managed by droid's native worktree system)
   - The tool handles worktree creation, naming, and cleanup
   - yolo's -c/--clean and -nc/--no-clean flags are ignored in this mode
 
@@ -1589,11 +1592,11 @@ main() {
     fi
 
     # Track whether yolo is managing the worktree itself
-    # claude and grok have built-in --worktree / -w support, so we delegate
-    # to them rather than creating our own worktree under .yolo/
+    # claude, grok, and droid have built-in --worktree / -w support, so we
+    # delegate to them rather than creating our own worktree under .yolo/
     local yolo_managed_worktree=false
     if [[ "$use_worktree" == "true" ]]; then
-        if [[ "$command_name" == "claude" || "$command_name" == "grok" ]]; then
+        if [[ "$command_name" == "claude" || "$command_name" == "grok" || "$command_name" == "droid" ]]; then
             print_info "Delegating worktree management to $command_name's built-in worktree support"
             # These tools handle their own worktree lifecycle, so yolo's -c/-nc
             # cleanup flags do not apply in this mode.
@@ -1700,6 +1703,15 @@ main() {
             fi
             ;;
         droid)
+            # droid has native -w/--worktree support; delegate to it when requested
+            if [[ "$use_worktree" == "true" ]]; then
+                full_command+=("-w")
+                # -w/--worktree takes an optional [name]; use -- to stop option
+                # parsing so the first prompt arg isn't consumed as the name.
+                if (( ${#command_args[@]} )); then
+                    full_command+=("--")
+                fi
+            fi
             # droid: pass prompt positionally; no special flags
             if (( ${#command_args[@]} )); then
                 full_command+=("${command_args[@]}")
