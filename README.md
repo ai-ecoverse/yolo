@@ -16,6 +16,7 @@ Part of the **[AI Ecoverse](https://github.com/ai-ecoverse/.github)** - a compre
 - [gh-workflow-peek](https://github.com/ai-ecoverse/gh-workflow-peek) - Smarter GitHub Actions log filtering
 - [upskill](https://github.com/ai-ecoverse/gh-upskill) - Install Claude/Agent skills from other repositories
 - [as-a-bot](https://github.com/ai-ecoverse/as-a-bot) - GitHub App token broker for proper AI attribution
+- [gh-reaper](https://github.com/ai-ecoverse/gh-reaper) - Reap stale git worktrees by age and size (cleans up the `.yolo/` checkouts YOLO leaves behind)
 
 ## Features
 
@@ -208,6 +209,14 @@ yolo --mop  # or yolo -m
 ```
 
 Use `--mop` to clean up orphaned worktrees from interrupted sessions or when you want a fresh start.
+
+> **Tip:** `--mop` only tidies the *current* repo. To find and reap forgotten `.yolo/` worktrees across **every** repo on your machine — sorted by age and size, and safely skipping ones with uncommitted or unpushed work — reach for [gh-reaper](https://github.com/ai-ecoverse/gh-reaper):
+>
+> ```bash
+> gh extension install ai-ecoverse/gh-reaper
+> gh reaper          # survey stale worktrees everywhere (read-only)
+> gh reaper --reap   # ...then reap the ones you've forgotten
+> ```
 
 ### Supported Commands
 
