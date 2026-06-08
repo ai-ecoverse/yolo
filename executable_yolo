@@ -253,6 +253,7 @@ sanitize_branch_name() {
 # Sets global variables: YOLO_BRANCH_NAME, YOLO_WORKTREE_PATH, YOLO_REPO_ROOT
 create_worktree() {
     local command_name="$1"
+    local dry_run="${2:-false}"
 
     if ! is_git_repo; then
         print_error "not in a git repository, cannot create worktree"
@@ -302,8 +303,12 @@ create_worktree() {
 
     # Kick off a CI-equivalent dependency install in the background so the agent
     # starts from a clean tree that matches CI (disable with -wn / --no-install).
-    prepare_deps "$YOLO_WORKTREE_PATH" </dev/null &
-    disown 2>/dev/null || true
+    # Skipped under --dry-run, which is preview-only (matches the native-worktree
+    # watcher, which is also guarded against dry-run).
+    if [[ "$dry_run" != "true" ]]; then
+        prepare_deps "$YOLO_WORKTREE_PATH" </dev/null &
+        disown 2>/dev/null || true
+    fi
 
     return 0
 }
@@ -318,8 +323,11 @@ detect_install_command() {
         echo "pnpm|pnpm install --frozen-lockfile"
     elif [[ -f "$dir/yarn.lock" ]]; then
         # Yarn Berry (>=2) uses --immutable; Yarn Classic (v1) --frozen-lockfile.
-        local yv
-        yv="$( (cd "$dir" 2>/dev/null && yarn --version) 2>/dev/null )"
+        # Keep the probe non-fatal: if yarn is missing the substitution exits
+        # non-zero, which under `set -e` would otherwise abort before
+        # prepare_deps reaches its "not in PATH; skipping" check.
+        local yv=""
+        yv="$( (cd "$dir" 2>/dev/null && yarn --version) 2>/dev/null )" || yv=""
         if [[ -z "$yv" || "$yv" == 1.* ]]; then
             echo "yarn|yarn install --frozen-lockfile"
         else
@@ -435,10 +443,13 @@ watch_and_prepare_deps() {
     before="$( git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' )"
 
     (
-        local waited=0 now path newpath
+        local waited=0 nap now path newpath
         while (( waited < timeout )); do
-            sleep 3
-            waited=$(( waited + 3 ))
+            # Poll every 3s, but never sleep past the timeout (keeps it a real
+            # upper bound, including small test values of YOLO_DEPS_WATCH_TIMEOUT).
+            nap=$(( timeout - waited )); (( nap > 3 )) && nap=3
+            sleep "$nap"
+            waited=$(( waited + nap ))
             # Bail out if the repo disappeared (session ended / cleanup).
             git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1 || exit 0
             now="$( git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' )"
@@ -1343,7 +1354,7 @@ run_multi_agents() {
         esac
 
         # Create dedicated worktree for each agent
-        if ! create_worktree "$agent"; then
+        if ! create_worktree "$agent" "$dry_run_flag"; then
             return 1
         fi
         # create_worktree sets globals: YOLO_WORKTREE_PATH, YOLO_BRANCH_NAME, YOLO_REPO_ROOT
@@ -1891,7 +1902,7 @@ main() {
             if [[ "$command_name" == "gemini" || "$command_name" == "qwen" ]]; then
                 print_info "$command_name's native --worktree is unavailable here; falling back to a yolo-managed worktree"
             fi
-            if ! create_worktree "$command_name"; then
+            if ! create_worktree "$command_name" "$dry_run"; then
                 exit 1
             fi
             # create_worktree sets YOLO_BRANCH_NAME, YOLO_WORKTREE_PATH, YOLO_REPO_ROOT

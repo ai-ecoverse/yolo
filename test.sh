@@ -888,11 +888,56 @@ EOF
         print_fail "yolo -wn faketool should not install deps (node_modules=$([[ -d "$wt2/node_modules" ]] && echo present || echo missing))"
     fi
 
+    # Assertion 6: --dry-run is preview-only -- it must NOT run the install
+    # (regression test: create_worktree used to install before the dry-run check).
+    # Uses a dedicated repo so node_modules can only appear if dry-run wrongly ran.
+    run_test
+    local dr_repo="/tmp/yolo_test_deps_dr_$$"
+    mkdir -p "$dr_repo"; cd "$dr_repo"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo '{}' > package.json
+    echo '{"lockfileVersion":3}' > package-lock.json
+    git add package.json
+    git add package-lock.json
+    git commit -q -m "init"
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -n -w faketool "go" >/dev/null 2>&1 || true
+    sleep 1
+    if ! find "$dr_repo/.yolo" -name node_modules -type d 2>/dev/null | grep -q .; then
+        print_pass "yolo -n -w (dry-run) does not run the dependency install"
+    else
+        print_fail "yolo -n -w should not install deps in dry-run"
+    fi
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
+
+    # Assertion 7: yarn.lock present but yarn not installed must not abort under
+    # set -e (regression: the yarn --version probe was fatal). Run with a minimal
+    # PATH (plus our fake faketool) so any real yarn is hidden.
+    run_test
+    local yarn_repo="/tmp/yolo_test_deps_yarn_$$"
+    mkdir -p "$yarn_repo"; cd "$yarn_repo"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo '{}' > package.json
+    : > yarn.lock
+    git add package.json
+    git add yarn.lock
+    git commit -q -m "init"
+    if PATH="$bin:/usr/bin:/bin" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -nc -w faketool "go" >/dev/null 2>&1; then
+        print_pass "yolo -w with yarn.lock but no yarn exits cleanly (no set -e abort)"
+    else
+        print_fail "yolo -w with yarn.lock but no yarn should not abort"
+    fi
+    PATH="$bin:/usr/bin:/bin" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
+
     # Cleanup (mop removes the .yolo/ worktrees this test created)
+    cd "$test_repo"
     PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
     unset YOLO_DEPS_WATCH_TIMEOUT
     cd /tmp
-    rm -rf "$test_repo" "$bin"
+    rm -rf "$test_repo" "$dr_repo" "$yarn_repo" "$bin"
 }
 
 # Print summary
