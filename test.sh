@@ -608,6 +608,104 @@ EOF
     rm -f "$droid_cmd"
 }
 
+# Shared assertions for agents that delegate to a native --worktree and pass
+# their prompt via -i (gemini, qwen). For these, yolo appends --worktree LAST
+# (after the -i prompt) and must not create its own .yolo/ worktree.
+_assert_native_worktree_via_i() {
+    local agent="$1"
+
+    # Create a temporary git repository for testing
+    local test_repo="/tmp/yolo_test_${agent}_$$"
+    mkdir -p "$test_repo"
+    cd "$test_repo"
+
+    # Initialize git repo
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo "test" > README.md
+    git add README.md
+    git commit -q -m "Initial commit"
+
+    # Create a dummy agent command that echoes args (so we can assert pass-through)
+    local agent_cmd="/tmp/$agent"
+    cat > "$agent_cmd" << 'EOF'
+#!/bin/bash
+echo "Running in: $PWD"
+echo "Args: $@"
+EOF
+    chmod +x "$agent_cmd"
+
+    # Assertion 1: --worktree is passed through when -w is set
+    run_test
+    local output
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -w "$agent" "fix the bug" 2>&1); then
+        if echo "$output" | grep -F -q -- "--worktree"; then
+            print_pass "yolo -w $agent passes through --worktree flag"
+        else
+            print_fail "yolo -w $agent should pass --worktree (got: $output)"
+        fi
+    else
+        print_fail "yolo -w $agent failed to run"
+    fi
+
+    # Assertion 2: --worktree is appended after the -i prompt (bare, last) so the
+    # tool auto-generates the worktree name instead of eating the prompt
+    run_test
+    if echo "$output" | grep -F -q -- "-i fix the bug --worktree"; then
+        print_pass "yolo -w $agent appends --worktree after the -i prompt"
+    else
+        print_fail "yolo -w $agent should append --worktree after -i prompt (got: $output)"
+    fi
+
+    # Assertion 3: yolo did NOT create a .yolo/ directory
+    run_test
+    if [[ ! -d "$test_repo/.yolo" ]]; then
+        print_pass "yolo -w $agent does not create .yolo/ worktree directory"
+    else
+        print_fail "yolo -w $agent should not create .yolo/ directory"
+    fi
+
+    # Assertion 4: yolo did NOT create a git worktree
+    run_test
+    local wt_count
+    wt_count=$(git worktree list | wc -l | tr -d ' ')
+    if [[ "$wt_count" == "1" ]]; then
+        print_pass "yolo -w $agent does not invoke git worktree add"
+    else
+        print_fail "yolo -w $agent should not create a git worktree (found $wt_count)"
+    fi
+
+    # Assertion 5: yolo <agent> (without -w) does NOT pass --worktree
+    run_test
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" "$agent" "hello" 2>&1); then
+        if ! echo "$output" | grep -F -q -- "--worktree"; then
+            print_pass "yolo $agent (no -w) does not pass --worktree"
+        else
+            print_fail "yolo $agent should not pass --worktree without -w (got: $output)"
+        fi
+    else
+        print_fail "yolo $agent failed to run"
+    fi
+
+    # Cleanup
+    cd /tmp
+    rm -rf "$test_repo"
+    rm -f "$agent_cmd"
+}
+
+# Test 11: Test yolo -w gemini delegates to gemini's native --worktree
+test_gemini_builtin_worktree() {
+    print_test_header "Test 11: Gemini Built-in Worktree Delegation"
+    _assert_native_worktree_via_i "gemini"
+}
+
+# Test 12: Test yolo -w qwen delegates to qwen's native --worktree
+test_qwen_builtin_worktree() {
+    print_test_header "Test 12: Qwen Built-in Worktree Delegation"
+    _assert_native_worktree_via_i "qwen"
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -651,6 +749,8 @@ main() {
     test_argument_preservation
     test_claude_builtin_worktree
     test_droid_builtin_worktree
+    test_gemini_builtin_worktree
+    test_qwen_builtin_worktree
 
     print_summary
 }

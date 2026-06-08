@@ -193,6 +193,30 @@ yolo -w -nc claude "keep this work"
    - With `-nc/--no-clean`: Preserves worktree without prompting
    - Without flags: Prompts user whether to clean up
 
+#### Native Worktree Delegation
+
+Some agents create and manage git worktrees themselves. For these, `yolo -w`
+**delegates** to the tool's own worktree support instead of creating a `.yolo/`
+worktree — the tool handles creation, naming, and cleanup, so yolo's
+`-c/--clean` and `-nc/--no-clean` flags don't apply:
+
+| Agent | Native flag | Worktree location |
+|-------|-------------|-------------------|
+| `claude` | `--worktree` | `.claude/worktrees/` |
+| `grok` | `-w` / `--worktree` | managed by grok |
+| `droid` | `-w` / `--worktree` | managed by droid |
+| `gemini` | `--worktree` | managed by gemini |
+| `qwen` | `--worktree` | `<repoRoot>/.qwen/worktrees/` |
+
+```bash
+yolo -w gemini "implement feature"   # gemini manages its own worktree
+yolo -w qwen "refactor the parser"   # qwen creates .qwen/worktrees/<slug>/
+```
+
+> **Note:** In multi-agent mode (comma-separated agents), yolo always creates
+> its own `.yolo/` worktree per agent so it can orchestrate panes and cleanup —
+> native delegation applies to single-agent runs only.
+
 ### Cleanup Mode
 
 Clean up all YOLO worktrees, branches, and processes at once:
@@ -229,9 +253,9 @@ Use `--mop` to clean up orphaned worktrees from interrupted sessions or when you
 | `amp` | `--dangerously-allow-all` |
 | `aider` | `--yes-always` |
 | `cursor-agent` | `--force` |
-| `gemini` | `--yolo` (+ `-i` when prompt present) |
+| `gemini` | `--yolo` (+ `-i` when prompt present; `-w` delegates to gemini's native `--worktree`) |
 | `opencode` | *(no flags)* |
-| `qwen` | `--yolo` (+ `-i` when prompt present) |
+| `qwen` | `--yolo` (+ `-i` when prompt present; `-w` delegates to qwen's native `--worktree`) |
 | `kimi` | `--yolo` (+ `--command` when prompt present) |
 | `crush` | `--yolo` (+ Ghostty injection when prompt present) |
 | `goose` | *(no flags - prompts passed via stdin)* |

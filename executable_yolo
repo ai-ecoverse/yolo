@@ -85,10 +85,11 @@ Usage: yolo [OPTIONS] [command] [args...]
 
 Options:
   -w, --worktree    Create a git worktree in .yolo/ before running command
-                    (exceptions: 'claude', 'grok', and 'droid' delegate to their
-                    built-in worktree support: claude uses .claude/worktrees/,
-                    grok uses its native -w/--worktree mode, droid uses its
-                    native -w/--worktree mode)
+                    (exceptions: 'claude', 'grok', 'droid', 'gemini', and 'qwen'
+                    delegate to their built-in worktree support: claude uses
+                    .claude/worktrees/, grok and droid use their native
+                    -w/--worktree mode, gemini and qwen use their native
+                    --worktree mode (qwen under .qwen/worktrees/))
   -c, --clean       Automatically clean up worktree after command completes
   -nc, --no-clean   Preserve worktree after command completes (no prompt)
   -e, --editor      Launch \$EDITOR to compose prompt (works in all modes)
@@ -106,8 +107,10 @@ Supported Commands:
   droid             No extra flags added (prompt allowed positionally)
   amp               Adds --dangerously-allow-all
   cursor-agent      Adds --force
-  gemini            Uses --yolo; adds -i when prompt present
-  qwen              Uses --yolo; adds -i when prompt present
+  gemini            Uses --yolo; adds -i when prompt present; -w delegates to
+                    gemini's native --worktree
+  qwen              Uses --yolo; adds -i when prompt present; -w delegates to
+                    qwen's native --worktree
   kimi              Uses --yolo (requires Ghostty for interactive prompts)
   opencode          No extra flags added
   crush             Uses --yolo (requires Ghostty for interactive prompts)
@@ -147,23 +150,28 @@ Examples:
   yolo -w -nc claude "keep this"   # Use claude's built-in --worktree (claude manages it)
   yolo -w grok "implement feature" # Use grok's native -w/--worktree (grok manages it)
   yolo -w droid "implement feature" # Use droid's native -w/--worktree (droid manages it)
+  yolo -w gemini "implement feature" # Use gemini's native --worktree (gemini manages it)
+  yolo -w qwen "implement feature" # Use qwen's native --worktree (qwen manages it)
   yolo -e codex,claude,gemini      # Compose prompt in editor, run 3 agents in parallel
   yolo copilot chat                # Run copilot chat with safety flags disabled
   yolo aider "add auth"            # Run aider with auto-approval
   yolo -w aider "implement feature" # Create worktree, run aider with prompt
 
 Worktree Mode:
-  When using -w/--worktree flag (for commands other than claude, grok, or droid):
+  When using -w/--worktree flag (for commands other than claude, grok, droid,
+  gemini, or qwen):
   - Creates .yolo/ directory in repository root
   - Creates branch: <command>-N (where N is the lowest available number)
   - Creates worktree: .yolo/<command>-N
   - Changes to worktree directory before running command
 
-  When using -w/--worktree flag with 'claude', 'grok', or 'droid':
+  When using -w/--worktree flag with 'claude', 'grok', 'droid', 'gemini', or 'qwen':
   - Delegates worktree management to the tool's native support
     - claude: uses --worktree (managed under .claude/worktrees/)
     - grok: uses -w/--worktree (managed by grok's native worktree system)
     - droid: uses -w/--worktree (managed by droid's native worktree system)
+    - gemini: uses --worktree (managed by gemini's native worktree system)
+    - qwen: uses --worktree (managed under <repoRoot>/.qwen/worktrees/)
   - The tool handles worktree creation, naming, and cleanup
   - yolo's -c/--clean and -nc/--no-clean flags are ignored in this mode
 
@@ -1592,11 +1600,12 @@ main() {
     fi
 
     # Track whether yolo is managing the worktree itself
-    # claude, grok, and droid have built-in --worktree / -w support, so we
-    # delegate to them rather than creating our own worktree under .yolo/
+    # claude, grok, droid, gemini, and qwen have built-in --worktree / -w
+    # support, so we delegate to them rather than creating our own worktree
+    # under .yolo/
     local yolo_managed_worktree=false
     if [[ "$use_worktree" == "true" ]]; then
-        if [[ "$command_name" == "claude" || "$command_name" == "grok" || "$command_name" == "droid" ]]; then
+        if [[ "$command_name" == "claude" || "$command_name" == "grok" || "$command_name" == "droid" || "$command_name" == "gemini" || "$command_name" == "qwen" ]]; then
             print_info "Delegating worktree management to $command_name's built-in worktree support"
             # These tools handle their own worktree lifecycle, so yolo's -c/-nc
             # cleanup flags do not apply in this mode.
@@ -1700,6 +1709,16 @@ main() {
                 local prompt_joined
                 prompt_joined=$(printf '%s ' "${command_args[@]}"); prompt_joined=${prompt_joined%% }
                 full_command+=("-i" "$prompt_joined")
+            fi
+            # gemini and qwen have native git worktree support; delegate to it
+            # when -w is requested rather than creating one with yolo's own logic.
+            #   gemini: --worktree [name]  (worktree under git's worktree dir)
+            #   qwen:   --worktree [slug]  (worktree under <repoRoot>/.qwen/worktrees/)
+            # The flag takes an optional name/slug; appending it bare and last
+            # (after the -i prompt) lets each tool auto-generate the name without
+            # consuming a following token as that name.
+            if [[ "$use_worktree" == "true" ]]; then
+                full_command+=("--worktree")
             fi
             ;;
         droid)
