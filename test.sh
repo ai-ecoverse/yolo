@@ -793,6 +793,108 @@ EOF
     rm -f "$agent_cmd"
 }
 
+# Test 14: Dependency auto-install (-w installs, -wn / --no-install opt out)
+test_dependency_auto_install() {
+    print_test_header "Test 14: Dependency Auto-install"
+
+    # --- Flag parsing / delegation note (deterministic, no background needed) ---
+    local test_repo="/tmp/yolo_test_deps_$$"
+    mkdir -p "$test_repo"; cd "$test_repo"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo '{"name":"x"}' > package.json
+    echo '{"lockfileVersion":3}' > package-lock.json
+    git add package.json
+    git add package-lock.json
+    git commit -q -m "init"
+
+    # Dummy claude/npm so nothing real runs; keep the watcher short-lived.
+    local bin="/tmp/yolo_test_deps_bin_$$"; mkdir -p "$bin"
+    cat > "$bin/claude" << 'EOF'
+#!/bin/bash
+echo "Args: $@"
+EOF
+    cat > "$bin/npm" << 'EOF'
+#!/bin/bash
+[[ "$1" == "ci" ]] && { mkdir -p node_modules; exit 0; }
+exit 0
+EOF
+    cat > "$bin/faketool" << 'EOF'
+#!/bin/bash
+echo "faketool ran"
+EOF
+    chmod +x "$bin/claude" "$bin/npm" "$bin/faketool"
+    # Keep the native-worktree watcher short-lived during the test.
+    export YOLO_DEPS_WATCH_TIMEOUT="${YOLO_DEPS_WATCH_TIMEOUT:-4}"
+
+    # Assertion 1: -w claude prints the watcher auto-install note
+    run_test
+    local out
+    out=$(PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -w claude "go" 2>&1 || true)
+    if echo "$out" | grep -F -q "will auto-install"; then
+        print_pass "yolo -w claude announces background dependency install"
+    else
+        print_fail "yolo -w claude should announce auto-install (got: $out)"
+    fi
+
+    # Assertion 2: -wn claude still delegates (--worktree) but skips auto-install
+    run_test
+    out=$(PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -wn claude "go" 2>&1 || true)
+    if echo "$out" | grep -F -q -- "--worktree" && ! echo "$out" | grep -F -q "will auto-install"; then
+        print_pass "yolo -wn claude delegates worktree but skips auto-install"
+    else
+        print_fail "yolo -wn claude should pass --worktree and skip auto-install (got: $out)"
+    fi
+
+    # Assertion 3: --no-install is accepted and suppresses the note
+    run_test
+    out=$(PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --no-install -w claude "go" 2>&1 || true)
+    if ! echo "$out" | grep -F -q "unknown option" && ! echo "$out" | grep -F -q "will auto-install"; then
+        print_pass "yolo --no-install -w claude is accepted and skips auto-install"
+    else
+        print_fail "yolo --no-install should be accepted and skip auto-install (got: $out)"
+    fi
+
+    # --- End-to-end install into a yolo-managed .yolo/ worktree ---
+    # Assertion 4: -w faketool installs deps (status ready + node_modules)
+    run_test
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -nc -w faketool "go" >/dev/null 2>&1 || true
+    local wt="$test_repo/.yolo/faketool-1"
+    local state=""
+    [[ -d "$wt" ]] && state="$(cd "$wt" && git rev-parse --absolute-git-dir 2>/dev/null)/yolo-deps"
+    local s=""
+    for _ in $(seq 1 40); do
+        s="$([[ -n "$state" ]] && cat "$state/status" 2>/dev/null || echo "")"
+        [[ "$s" == "ready" || "$s" == "failed" ]] && break
+        sleep 0.3
+    done
+    if [[ "$s" == "ready" && -d "$wt/node_modules" ]]; then
+        print_pass "yolo -w faketool installs deps in background (status ready, node_modules present)"
+    else
+        print_fail "yolo -w faketool should install deps (status=$s, node_modules=$([[ -d "$wt/node_modules" ]] && echo present || echo missing))"
+    fi
+
+    # Assertion 5: -wn faketool skips the install entirely
+    run_test
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -nc -wn faketool "go" >/dev/null 2>&1 || true
+    local wt2="$test_repo/.yolo/faketool-2"
+    sleep 1
+    local gd2=""
+    [[ -d "$wt2" ]] && gd2="$(cd "$wt2" && git rev-parse --absolute-git-dir 2>/dev/null)"
+    if [[ ! -d "$wt2/node_modules" && ( -z "$gd2" || ! -e "$gd2/yolo-deps/status" ) ]]; then
+        print_pass "yolo -wn faketool skips dependency install"
+    else
+        print_fail "yolo -wn faketool should not install deps (node_modules=$([[ -d "$wt2/node_modules" ]] && echo present || echo missing))"
+    fi
+
+    # Cleanup (mop removes the .yolo/ worktrees this test created)
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
+    unset YOLO_DEPS_WATCH_TIMEOUT
+    cd /tmp
+    rm -rf "$test_repo" "$bin"
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -839,6 +941,7 @@ main() {
     test_gemini_builtin_worktree
     test_qwen_builtin_worktree
     test_gemini_worktree_fallback
+    test_dependency_auto_install
 
     print_summary
 }

@@ -27,6 +27,7 @@ Part of the **[AI Ecoverse](https://github.com/ai-ecoverse/.github)** - a compre
 - 📝 **Editor Mode**: Compose complex prompts in your preferred editor
 - 🪟 **Ghostty Support**: Native split pane support for Ghostty terminal
 - 🌳 **Worktree Isolation**: Optional `-w` flag creates isolated git worktrees
+- 📦 **Dependency Auto-install**: New worktrees get a background `npm ci`-equivalent so local checks match CI (`-wn` / `--no-install` to skip)
 - 🔒 **Safe Experimentation**: Work in isolated environments without affecting main codebase
 - 🧹 **Clean History**: Separate branches for each agent session
 - 🧽 **Mop Command**: Clean up all worktrees, branches, and processes with one command
@@ -222,6 +223,49 @@ yolo -w qwen "refactor the parser"   # qwen creates .qwen/worktrees/<slug>/
 > **Note:** In multi-agent mode (comma-separated agents), yolo always creates
 > its own `.yolo/` worktree per agent so it can orchestrate panes and cleanup —
 > native delegation applies to single-agent runs only.
+
+#### Dependency Auto-install
+
+A fresh git worktree only contains tracked files — gitignored dependencies like
+`node_modules/` are missing. That's a subtle trap for agents: local `lint`/`test`
+runs can **silently pass against stale or absent dependencies** while CI (which
+runs a clean `npm ci`) fails, sending the agent chasing phantom "version
+mismatch" bugs.
+
+To close that gap, `-w` automatically installs dependencies in the background.
+YOLO detects the package manager from the lockfile and runs the CI-equivalent,
+reproducible install:
+
+| Lockfile | Command |
+|----------|---------|
+| `package-lock.json` / `npm-shrinkwrap.json` | `npm ci` |
+| `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+| `yarn.lock` | `yarn install --immutable` (or `--frozen-lockfile` on Yarn 1.x) |
+| `bun.lockb` / `bun.lock` | `bun install --frozen-lockfile` |
+
+```bash
+# Worktree + background dependency install (default)
+yolo -w claude "fix the failing test"
+
+# Skip the install (e.g. you'll install manually, or there's nothing to install)
+yolo -wn claude "tweak the docs"        # -wn = worktree, no install
+yolo -w --no-install aider "experiment"
+```
+
+Details:
+
+- **Works for both worktree styles.** For YOLO-managed `.yolo/` worktrees the
+  install starts as soon as the worktree is created. For tools with their own
+  native worktree support (`claude`, `grok`, `droid`, and `gemini`/`qwen`), YOLO
+  watches `git worktree list` and installs into the tool's worktree
+  (`.claude/worktrees/`, `.qwen/worktrees/`, etc.) once it appears.
+- **Non-blocking.** The install runs in the background so the agent starts
+  immediately. Status (`running`/`ready`/`failed`) and a log live under the
+  worktree's git dir (`<gitdir>/yolo-deps/`), keeping `git status` clean.
+- **Idempotent.** It fingerprints the lockfile and skips work that's already
+  current; an existing `node_modules` you created yourself is adopted, not wiped.
+- **Opt out** per-run with `-wn` / `--no-install`, or globally by exporting
+  `YOLO_INSTALL_DEPS=false`.
 
 ### Cleanup Mode
 
