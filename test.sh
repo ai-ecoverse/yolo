@@ -611,6 +611,11 @@ EOF
 # Shared assertions for agents that delegate to a native --worktree and pass
 # their prompt via -i (gemini, qwen). For these, yolo appends --worktree LAST
 # (after the -i prompt) and must not create its own .yolo/ worktree.
+#
+# yolo probes "<agent> --help" for the flag before delegating, and for gemini it
+# also requires experimental.worktrees enabled in settings, so the dummy agent
+# advertises --worktree on --help and the gemini case writes an enabling
+# workspace settings file.
 _assert_native_worktree_via_i() {
     local agent="$1"
 
@@ -627,14 +632,26 @@ _assert_native_worktree_via_i() {
     git add README.md
     git commit -q -m "Initial commit"
 
-    # Create a dummy agent command that echoes args (so we can assert pass-through)
+    # Create a dummy agent command. On --help it advertises --worktree (so yolo's
+    # capability probe succeeds); otherwise it echoes its args for assertions.
     local agent_cmd="/tmp/$agent"
     cat > "$agent_cmd" << 'EOF'
 #!/bin/bash
+if [ "$1" = "--help" ]; then
+  echo "  -w, --worktree   Start in a new git worktree  [string]"
+  exit 0
+fi
 echo "Running in: $PWD"
 echo "Args: $@"
 EOF
     chmod +x "$agent_cmd"
+
+    # gemini only honours --worktree when experimental.worktrees is enabled;
+    # enable it in a workspace settings file so the delegation path is taken.
+    if [[ "$agent" == "gemini" ]]; then
+        mkdir -p .gemini
+        printf '%s\n' '{"experimental": {"worktrees": true}}' > .gemini/settings.json
+    fi
 
     # Assertion 1: --worktree is passed through when -w is set
     run_test
@@ -706,6 +723,76 @@ test_qwen_builtin_worktree() {
     _assert_native_worktree_via_i "qwen"
 }
 
+# Test 13: When gemini's native worktree support is NOT usable (experimental
+# .worktrees disabled), yolo must fall back to a yolo-managed .yolo/ worktree
+# instead of passing --worktree (which gemini would reject).
+test_gemini_worktree_fallback() {
+    print_test_header "Test 13: Gemini Worktree Fallback (experimental disabled)"
+
+    # Clean HOME so no user-level .gemini/settings.json can enable worktrees
+    local clean_home="/tmp/yolo_test_gemini_home_$$"
+    mkdir -p "$clean_home"
+
+    local test_repo="/tmp/yolo_test_gemini_fb_$$"
+    mkdir -p "$test_repo"
+    cd "$test_repo"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo "test" > README.md
+    git add README.md
+    git commit -q -m "Initial commit"
+
+    # Dummy gemini advertises --worktree on --help, but no settings enable it
+    local agent_cmd="/tmp/gemini"
+    cat > "$agent_cmd" << 'EOF'
+#!/bin/bash
+if [ "$1" = "--help" ]; then
+  echo "  -w, --worktree   Start in a new git worktree  [string]"
+  exit 0
+fi
+echo "Running in: $PWD"
+echo "Args: $@"
+EOF
+    chmod +x "$agent_cmd"
+
+    # Use -nc so the fallback worktree is preserved without an interactive prompt
+    local output
+    output=$(HOME="$clean_home" PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -w -nc gemini "fix the bug" 2>&1)
+
+    # Assertion 1: yolo announces the fallback
+    run_test
+    if echo "$output" | grep -F -q -- "falling back to a yolo-managed worktree"; then
+        print_pass "yolo -w gemini falls back when experimental.worktrees is disabled"
+    else
+        print_fail "yolo -w gemini should fall back when experimental disabled (got: $output)"
+    fi
+
+    # Assertion 2: yolo created its own .yolo/ worktree
+    run_test
+    if [[ -d "$test_repo/.yolo" ]]; then
+        print_pass "yolo -w gemini (disabled) creates a yolo-managed .yolo/ worktree"
+    else
+        print_fail "yolo -w gemini (disabled) should create a .yolo/ fallback (got: $output)"
+    fi
+
+    # Assertion 3: --worktree is NOT passed to gemini in the fallback path.
+    # (Scope the check to the dummy's "Args:" line so the fallback info message,
+    # which mentions "--worktree", doesn't trigger a false positive.)
+    run_test
+    if ! echo "$output" | grep -E -q -- "Args:.*--worktree"; then
+        print_pass "yolo -w gemini (disabled) does not pass --worktree to gemini"
+    else
+        print_fail "yolo -w gemini (disabled) should not pass --worktree (got: $output)"
+    fi
+
+    # Cleanup (the .yolo/ worktree lives inside test_repo, so this removes it too)
+    cd /tmp
+    git -C "$test_repo" worktree prune 2>/dev/null || true
+    rm -rf "$test_repo" "$clean_home"
+    rm -f "$agent_cmd"
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -751,6 +838,7 @@ main() {
     test_droid_builtin_worktree
     test_gemini_builtin_worktree
     test_qwen_builtin_worktree
+    test_gemini_worktree_fallback
 
     print_summary
 }
