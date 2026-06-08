@@ -262,7 +262,7 @@ Use `--mop` to clean up orphaned worktrees from interrupted sessions or when you
 | `gemini` | `--yolo` (+ `-i` when prompt present; `-w` delegates to gemini's native `--worktree` when `experimental.worktrees` is enabled, else falls back to a `.yolo/` worktree) |
 | `opencode` | *(no flags)* |
 | `qwen` | `--yolo` (+ `-i` when prompt present; `-w` delegates to qwen's native `--worktree`) |
-| `kimi` | `--yolo` (+ `--command` when prompt present) |
+| `kimi` | `--yolo` (+ Ghostty injection when prompt present) |
 | `crush` | `--yolo` (+ Ghostty injection when prompt present) |
 | `goose` | *(no flags - prompts passed via stdin)* |
 | `grok` | `--yolo` (Grok Build by xAI) |
