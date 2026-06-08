@@ -242,6 +242,13 @@ reproducible install:
 | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
 | `yarn.lock` | `yarn install --immutable` (or `--frozen-lockfile` on Yarn 1.x) |
 | `bun.lockb` / `bun.lock` | `bun install --frozen-lockfile` |
+| `uv.lock` (Python) | `uv sync --frozen` |
+
+> **Python note:** uv installs into the project's `.venv`, so it only helps
+> tooling invoked through that environment (`uv run pytest`, or an activated
+> `.venv`) — unlike `node_modules`, a bare `python`/`pytest` won't pick it up.
+> That matches the normal uv workflow. Bare `requirements.txt` is intentionally
+> not auto-installed (it isn't a guaranteed-pinned lockfile).
 
 ```bash
 # Worktree + background dependency install (default)
@@ -263,7 +270,8 @@ Details:
   immediately. Status (`running`/`ready`/`failed`) and a log live under the
   worktree's git dir (`<gitdir>/yolo-deps/`), keeping `git status` clean.
 - **Idempotent.** It fingerprints the lockfile and skips work that's already
-  current; an existing `node_modules` you created yourself is adopted, not wiped.
+  current; an existing install you created yourself (`node_modules`, uv's
+  `.venv`) is adopted, not wiped.
 - **Opt out** per-run with `-wn` / `--no-install`, or globally by exporting
   `YOLO_INSTALL_DEPS=false`.
 

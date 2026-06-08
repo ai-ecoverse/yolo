@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 # Color output helpers
 RED='\033[0;31m'
@@ -198,6 +198,7 @@ Dependency Auto-install:
     - yarn.lock                                -> yarn install --immutable (or
                                                   --frozen-lockfile on Yarn 1.x)
     - bun.lockb / bun.lock                     -> bun install --frozen-lockfile
+    - uv.lock (Python)                         -> uv sync --frozen
   For .yolo/ worktrees the install starts immediately; for native worktrees
   (claude/grok/droid) yolo watches the git worktree list and installs once the
   tool's worktree appears. Status + a log live under <gitdir>/yolo-deps/.
@@ -337,16 +338,21 @@ detect_install_command() {
         echo "bun|bun install --frozen-lockfile"
     elif [[ -f "$dir/package-lock.json" || -f "$dir/npm-shrinkwrap.json" ]]; then
         echo "npm|npm ci"
+    elif [[ -f "$dir/uv.lock" ]]; then
+        # uv (Python): install exactly what's locked into the project's .venv
+        # without re-resolving or mutating uv.lock -- the closest analog to
+        # `npm ci`. Only helps tooling invoked via `uv run` / the .venv.
+        echo "uv|uv sync --frozen"
     fi
-    # Extension point: Cargo.lock, uv.lock/poetry.lock, Gemfile.lock, go.sum,
-    # composer.lock -- add cases above as the need arises.
+    # Extension point: poetry.lock/pdm.lock/Pipfile.lock, Cargo.lock,
+    # Gemfile.lock, go.sum, composer.lock -- add cases above as the need arises.
 }
 
 # Compute a cheap fingerprint of a directory's lockfiles so we can tell when an
 # install is already current and skip redundant work.
 deps_fingerprint() {
     local dir="$1" f acc=""
-    for f in pnpm-lock.yaml yarn.lock bun.lockb bun.lock package-lock.json npm-shrinkwrap.json; do
+    for f in pnpm-lock.yaml yarn.lock bun.lockb bun.lock package-lock.json npm-shrinkwrap.json uv.lock; do
         [[ -f "$dir/$f" ]] && acc="$acc $(cksum < "$dir/$f" 2>/dev/null)"
     done
     printf '%s' "$acc" | cksum | awk '{print $1"-"$2}'
@@ -399,9 +405,11 @@ prepare_deps() {
         if [[ "$prev_fp" == "$fp" && ( "$prev_status" == "ready" || "$prev_status" == "running" ) ]]; then
             return 0
         fi
-        # An existing node_modules we did not create: adopt it rather than
-        # wiping it, unless the lockfile has changed since.
-        if [[ -d "$dir/node_modules" && -z "$prev_fp" ]]; then
+        # An existing install we did not create (JS node_modules, or uv's .venv):
+        # adopt it rather than wiping it, unless the lockfile has changed since.
+        local artifact_dir="node_modules"
+        [[ "$manager" == "uv" ]] && artifact_dir=".venv"
+        if [[ -d "$dir/$artifact_dir" && -z "$prev_fp" ]]; then
             echo "ready" > "$status_file"
             echo "$fp" > "$stamp_file"
             return 0

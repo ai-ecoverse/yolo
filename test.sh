@@ -932,12 +932,47 @@ EOF
     fi
     PATH="$bin:/usr/bin:/bin" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
 
+    # Assertion 8: uv.lock (Python) -> background `uv sync --frozen` into .venv
+    run_test
+    cat > "$bin/uv" << 'EOF'
+#!/bin/bash
+[[ "$1" == "sync" ]] && { mkdir -p .venv; echo "uv $*"; exit 0; }
+exit 0
+EOF
+    chmod +x "$bin/uv"
+    local uv_repo="/tmp/yolo_test_deps_uv_$$"
+    mkdir -p "$uv_repo"; cd "$uv_repo"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    printf '[project]\nname = "x"\nversion = "0.0.0"\n' > pyproject.toml
+    printf 'version = 1\n' > uv.lock
+    git add pyproject.toml
+    git add uv.lock
+    git commit -q -m "init"
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -nc -w faketool "go" >/dev/null 2>&1 || true
+    local uvwt="$uv_repo/.yolo/faketool-1"
+    local uvstate=""
+    [[ -d "$uvwt" ]] && uvstate="$(cd "$uvwt" && git rev-parse --absolute-git-dir 2>/dev/null)/yolo-deps"
+    local us=""
+    for _ in $(seq 1 40); do
+        us="$([[ -n "$uvstate" ]] && cat "$uvstate/status" 2>/dev/null || echo "")"
+        [[ "$us" == "ready" || "$us" == "failed" ]] && break
+        sleep 0.3
+    done
+    if [[ "$us" == "ready" && -d "$uvwt/.venv" ]] && grep -q "uv sync --frozen" "$uvstate/install.log" 2>/dev/null; then
+        print_pass "yolo -w (uv.lock) runs 'uv sync --frozen' into the worktree .venv"
+    else
+        print_fail "yolo -w with uv.lock should run 'uv sync --frozen' (status=$us, .venv=$([[ -d "$uvwt/.venv" ]] && echo present || echo missing))"
+    fi
+    PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
+
     # Cleanup (mop removes the .yolo/ worktrees this test created)
     cd "$test_repo"
     PATH="$bin:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" --mop >/dev/null 2>&1 || true
     unset YOLO_DEPS_WATCH_TIMEOUT
     cd /tmp
-    rm -rf "$test_repo" "$dr_repo" "$yarn_repo" "$bin"
+    rm -rf "$test_repo" "$dr_repo" "$yarn_repo" "$uv_repo" "$bin"
 }
 
 # Print summary
