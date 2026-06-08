@@ -153,7 +153,7 @@ test_command_flags() {
         "opencode:"  # no extra flags
         "qwen:--yolo"
         "kimi:--yolo"
-        "aider:--yes-always --no-auto-commit"
+        "aider:--yes-always"
         "unknown-tool:--yolo"
     )
 
@@ -224,68 +224,105 @@ EOF
     rm -f "$test_script"
 }
 
-# Test 5d: Aider gets prompt via AppleScript injection
+# Test 5d: Aider auto-approval flag, Ghostty prompt requirement, and worktree
+# Aider passes prompts via Ghostty AppleScript injection (not as CLI args), so
+# with a prompt outside Ghostty yolo errors out; without a prompt it just adds
+# --yes-always. The worktree case runs in a throwaway repo so it never pollutes
+# the working tree.
 test_aider_prompt_injection() {
-    print_test_header "Test 5d: Aider Prompt Injection"
-    run_test
+    print_test_header "Test 5d: Aider Flags, Ghostty Requirement & Worktree"
 
     # Create a dummy aider that just echoes its arguments
     local test_script="/tmp/aider"
     cat > "$test_script" << 'EOF'
 #!/bin/bash
-echo "$@"
+echo "ARGS: $@"
 EOF
     chmod +x "$test_script"
 
-    # Run yolo aider with a positional prompt
+    # Assertion 1: a prompt outside Ghostty is rejected with a clear message.
+    # Clear TERM_PROGRAM/GHOSTTY_BIN_DIR via `env` so they are unset in yolo's own
+    # environment (a `VAR= run_with_timeout` prefix would not propagate to the
+    # grandchild process, since run_with_timeout is a function).
+    run_test
     local output
-    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" aider "implement feature" 2>&1); then
-        if echo "$output" | grep -F -q "--yes-always" && echo "$output" | grep -F -q "implement feature"; then
-            print_pass "yolo aider adds --yes-always and passes prompt"
-        else
-            print_fail "yolo aider should add --yes-always and pass prompt (got: $output)"
-        fi
+    output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" env TERM_PROGRAM= GHOSTTY_BIN_DIR= "$YOLO_CMD" aider "implement feature" 2>&1) || true
+    if echo "$output" | grep -F -q -- "aider with prompts requires Ghostty"; then
+        print_pass "yolo aider with a prompt outside Ghostty errors clearly"
     else
-        print_info "Skipping aider prompt test (command not executed)"
+        print_fail "yolo aider should require Ghostty for prompts (got: $output)"
     fi
 
-    # Test with worktree flag
-    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" -w aider "implement feature" 2>&1); then
-        if echo "$output" | grep -F -q "--yes-always" && echo "$output" | grep -F -q "implement feature"; then
-            print_pass "yolo -w aider adds --yes-always and passes prompt"
-        else
-            print_fail "yolo -w aider should add --yes-always and pass prompt (got: $output)"
-        fi
+    # Assertion 2: without a prompt, aider just gets --yes-always
+    run_test
+    output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" env TERM_PROGRAM= GHOSTTY_BIN_DIR= "$YOLO_CMD" aider 2>&1) || true
+    if echo "$output" | grep -F -q -- "ARGS: --yes-always"; then
+        print_pass "yolo aider (no prompt) launches aider --yes-always"
     else
-        print_info "Skipping aider worktree test (command not executed)"
+        print_fail "yolo aider (no prompt) should add --yes-always (got: $output)"
     fi
 
+    # Assertion 3: yolo -w aider creates a yolo-managed worktree and runs aider
+    # there with --yes-always. Done in a throwaway repo to avoid polluting cwd.
+    run_test
+    local test_repo="/tmp/yolo_test_aider_wt_$$"
+    mkdir -p "$test_repo"
+    cd "$test_repo"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+    echo "test" > README.md
+    git add README.md
+    git commit -q -m "Initial commit"
+
+    output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" env TERM_PROGRAM= GHOSTTY_BIN_DIR= "$YOLO_CMD" -w -nc aider 2>&1) || true
+    if echo "$output" | grep -F -q -- "ARGS: --yes-always" && [[ -d "$test_repo/.yolo" ]]; then
+        print_pass "yolo -w aider creates a .yolo/ worktree and runs aider --yes-always"
+    else
+        print_fail "yolo -w aider should create a .yolo/ worktree and run aider (got: $output)"
+    fi
+
+    # Cleanup (the .yolo/ worktree lives inside test_repo, so this removes it too)
+    cd /tmp
+    git -C "$test_repo" worktree prune 2>/dev/null || true
+    rm -rf "$test_repo"
     rm -f "$test_script"
 }
 
-# Test 5c: Kimi gets --command when prompt is provided (single-agent)
+# Test 5c: Kimi passes prompts via Ghostty injection, not a CLI flag.
+# Outside Ghostty a prompt is rejected with a clear message; without a prompt
+# kimi just gets --yolo.
 test_kimi_command_with_prompt() {
-    print_test_header "Test 5c: Kimi --command Added With Prompt"
-    run_test
+    print_test_header "Test 5c: Kimi Prompt Requires Ghostty"
 
     # Create a dummy kimi that just echoes its arguments
     local test_script="/tmp/kimi"
     cat > "$test_script" << 'EOF'
 #!/bin/bash
-echo "$@"
+echo "ARGS: $@"
 EOF
     chmod +x "$test_script"
 
-    # Run yolo kimi with a positional prompt
+    # Assertion 1: a prompt outside Ghostty is rejected with a clear message.
+    # is_ghostty checks TERM_PROGRAM/GHOSTTY_BIN_DIR; clear them via `env` so they
+    # are unset in yolo's own environment (a `VAR= run_with_timeout` prefix would
+    # not propagate to the grandchild process, since run_with_timeout is a function).
+    run_test
     local output
-    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" kimi "hello world" 2>&1); then
-        if echo "$output" | grep -F -q -- "--command" && echo "$output" | grep -F -q -- "hello world"; then
-            print_pass "yolo kimi adds --command and passes prompt"
-        else
-            print_fail "yolo kimi should add --command and pass prompt (got: $output)"
-        fi
+    output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" env TERM_PROGRAM= GHOSTTY_BIN_DIR= "$YOLO_CMD" kimi "hello world" 2>&1) || true
+    if echo "$output" | grep -F -q -- "kimi with prompts requires Ghostty"; then
+        print_pass "yolo kimi with a prompt outside Ghostty errors clearly"
     else
-        print_info "Skipping kimi --command test (command not executed)"
+        print_fail "yolo kimi should require Ghostty for prompts (got: $output)"
+    fi
+
+    # Assertion 2: without a prompt, kimi just gets --yolo
+    run_test
+    output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" env TERM_PROGRAM= GHOSTTY_BIN_DIR= "$YOLO_CMD" kimi 2>&1) || true
+    if echo "$output" | grep -F -q -- "ARGS: --yolo"; then
+        print_pass "yolo kimi (no prompt) launches kimi --yolo"
+    else
+        print_fail "yolo kimi (no prompt) should add --yolo (got: $output)"
     fi
 
     rm -f "$test_script"
