@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.3.0"
 
 # Color output helpers
 RED='\033[0;31m'
@@ -84,14 +84,21 @@ YOLO - AI CLI Tool Wrapper with Worktree Support
 Usage: yolo [OPTIONS] [command] [args...]
 
 Options:
-  -w, --worktree    Create a git worktree in .yolo/ before running command
+  -w, --worktree    Create a git worktree in .yolo/ before running command, then
+                    auto-install its dependencies in the background (npm ci /
+                    pnpm/yarn/bun equivalent, based on the lockfile)
                     (exceptions: 'claude', 'grok', 'droid', 'gemini', and 'qwen'
                     delegate to their built-in worktree support: claude uses
                     .claude/worktrees/, grok and droid use their native
                     -w/--worktree mode, gemini and qwen use their native
                     --worktree mode (qwen under .qwen/worktrees/). gemini only
                     delegates when experimental.worktrees is enabled in its
-                    settings; otherwise yolo manages a .yolo/ worktree as usual)
+                    settings; otherwise yolo manages a .yolo/ worktree as usual.
+                    yolo watches for the delegated worktree and installs deps
+                    there too)
+  -wn, --worktree-no-install
+                    Like -w, but skip the automatic dependency install
+  --no-install      Skip the automatic dependency install (with -w/-a)
   -c, --clean       Automatically clean up worktree after command completes
   -nc, --no-clean   Preserve worktree after command completes (no prompt)
   -e, --editor      Launch \$EDITOR to compose prompt (works in all modes)
@@ -182,6 +189,21 @@ Worktree Mode:
     without the flag, or gemini without experimental.worktrees enabled), yolo
     transparently falls back to a yolo-managed .yolo/ worktree
 
+Dependency Auto-install:
+  Fresh worktrees are missing gitignored dependencies (node_modules, etc.), so
+  local checks (lint, tests) can silently diverge from CI. With -w, yolo detects
+  the lockfile and runs the CI-equivalent install in the background:
+    - package-lock.json / npm-shrinkwrap.json -> npm ci
+    - pnpm-lock.yaml                           -> pnpm install --frozen-lockfile
+    - yarn.lock                                -> yarn install --immutable (or
+                                                  --frozen-lockfile on Yarn 1.x)
+    - bun.lockb / bun.lock                     -> bun install --frozen-lockfile
+    - uv.lock (Python)                         -> uv sync --frozen
+  For .yolo/ worktrees the install starts immediately; for native worktrees
+  (claude/grok/droid) yolo watches the git worktree list and installs once the
+  tool's worktree appears. Status + a log live under <gitdir>/yolo-deps/.
+  Disable with -wn / --no-install, or export YOLO_INSTALL_DEPS=false.
+
 Cleanup Mode:
   When using -m/--mop flag:
   - Removes all .yolo/ worktrees
@@ -232,6 +254,7 @@ sanitize_branch_name() {
 # Sets global variables: YOLO_BRANCH_NAME, YOLO_WORKTREE_PATH, YOLO_REPO_ROOT
 create_worktree() {
     local command_name="$1"
+    local dry_run="${2:-false}"
 
     if ! is_git_repo; then
         print_error "not in a git repository, cannot create worktree"
@@ -278,7 +301,184 @@ create_worktree() {
     }
 
     print_success "Now in: $YOLO_WORKTREE_PATH"
+
+    # Kick off a CI-equivalent dependency install in the background so the agent
+    # starts from a clean tree that matches CI (disable with -wn / --no-install).
+    # Skipped under --dry-run, which is preview-only (matches the native-worktree
+    # watcher, which is also guarded against dry-run).
+    if [[ "$dry_run" != "true" ]]; then
+        prepare_deps "$YOLO_WORKTREE_PATH" </dev/null &
+        disown 2>/dev/null || true
+    fi
+
     return 0
+}
+
+# Detect the CI-equivalent dependency-install command for a project directory,
+# based on which lockfile is present. Echoes "<manager>|<command>" or nothing
+# when no recognized lockfile exists.
+detect_install_command() {
+    local dir="$1"
+
+    if [[ -f "$dir/pnpm-lock.yaml" ]]; then
+        echo "pnpm|pnpm install --frozen-lockfile"
+    elif [[ -f "$dir/yarn.lock" ]]; then
+        # Yarn Berry (>=2) uses --immutable; Yarn Classic (v1) --frozen-lockfile.
+        # Keep the probe non-fatal: if yarn is missing the substitution exits
+        # non-zero, which under `set -e` would otherwise abort before
+        # prepare_deps reaches its "not in PATH; skipping" check.
+        local yv=""
+        yv="$( (cd "$dir" 2>/dev/null && yarn --version) 2>/dev/null )" || yv=""
+        if [[ -z "$yv" || "$yv" == 1.* ]]; then
+            echo "yarn|yarn install --frozen-lockfile"
+        else
+            echo "yarn|yarn install --immutable"
+        fi
+    elif [[ -f "$dir/bun.lockb" || -f "$dir/bun.lock" ]]; then
+        echo "bun|bun install --frozen-lockfile"
+    elif [[ -f "$dir/package-lock.json" || -f "$dir/npm-shrinkwrap.json" ]]; then
+        echo "npm|npm ci"
+    elif [[ -f "$dir/uv.lock" ]]; then
+        # uv (Python): install exactly what's locked into the project's .venv
+        # without re-resolving or mutating uv.lock -- the closest analog to
+        # `npm ci`. Only helps tooling invoked via `uv run` / the .venv.
+        echo "uv|uv sync --frozen"
+    fi
+    # Extension point: poetry.lock/pdm.lock/Pipfile.lock, Cargo.lock,
+    # Gemfile.lock, go.sum, composer.lock -- add cases above as the need arises.
+}
+
+# Compute a cheap fingerprint of a directory's lockfiles so we can tell when an
+# install is already current and skip redundant work.
+deps_fingerprint() {
+    local dir="$1" f acc=""
+    for f in pnpm-lock.yaml yarn.lock bun.lockb bun.lock package-lock.json npm-shrinkwrap.json uv.lock; do
+        [[ -f "$dir/$f" ]] && acc="$acc $(cksum < "$dir/$f" 2>/dev/null)"
+    done
+    printf '%s' "$acc" | cksum | awk '{print $1"-"$2}'
+}
+
+# Install a worktree's dependencies in the background using the CI-equivalent
+# command for its package manager. Idempotent: no-ops when deps are already
+# current. Writes status ("running"/"ready"/"failed") and a log under the
+# worktree's git dir so the working tree (and `git status`) stay clean.
+# Disabled by -wn / --no-install (YOLO_INSTALL_DEPS=false).
+prepare_deps() {
+    local dir="$1"
+    [[ -z "$dir" ]] && dir="$PWD"
+
+    # Opt-out (set by -wn / --no-install, or exported by the user).
+    case "${YOLO_INSTALL_DEPS:-true}" in
+        false|0|no|off) return 0 ;;
+    esac
+
+    local spec manager cmd
+    spec="$(detect_install_command "$dir")"
+    [[ -z "$spec" ]] && return 0
+    manager="${spec%%|*}"
+    cmd="${spec#*|}"
+
+    if ! command_exists "$manager"; then
+        print_warning "deps: '$manager' not in PATH; skipping auto-install in $(basename "$dir")"
+        return 0
+    fi
+
+    local gitdir state_dir
+    gitdir="$( (cd "$dir" 2>/dev/null && git rev-parse --absolute-git-dir) 2>/dev/null )"
+    if [[ -n "$gitdir" ]]; then
+        state_dir="$gitdir/yolo-deps"
+    else
+        state_dir="$dir/.yolo-deps"
+    fi
+    mkdir -p "$state_dir" 2>/dev/null || true
+    local status_file="$state_dir/status"
+    local stamp_file="$state_dir/fingerprint"
+    local log_file="$state_dir/install.log"
+
+    local fp prev_status prev_fp
+    fp="$(deps_fingerprint "$dir")"
+    prev_status="$(cat "$status_file" 2>/dev/null || true)"
+    prev_fp="$(cat "$stamp_file" 2>/dev/null || true)"
+
+    if [[ "${YOLO_INSTALL_DEPS:-true}" != "always" ]]; then
+        # Already installed (or installing) for this exact lockfile state.
+        if [[ "$prev_fp" == "$fp" && ( "$prev_status" == "ready" || "$prev_status" == "running" ) ]]; then
+            return 0
+        fi
+        # An existing install we did not create (JS node_modules, or uv's .venv):
+        # adopt it rather than wiping it, unless the lockfile has changed since.
+        local artifact_dir="node_modules"
+        [[ "$manager" == "uv" ]] && artifact_dir=".venv"
+        if [[ -d "$dir/$artifact_dir" && -z "$prev_fp" ]]; then
+            echo "ready" > "$status_file"
+            echo "$fp" > "$stamp_file"
+            return 0
+        fi
+    fi
+
+    echo "running" > "$status_file"
+    echo "$fp" > "$stamp_file"
+
+    print_info "deps: installing ($manager) -- '$cmd' (log: $log_file)"
+
+    # Run the install to completion. Callers decide whether to background this
+    # (create_worktree backgrounds it; the native-worktree watcher runs it
+    # synchronously so the watcher stays alive until the install finishes).
+    local -a cmd_arr
+    read -ra cmd_arr <<< "$cmd"
+    {
+        echo "# yolo: $cmd"
+        echo "# dir:  $dir"
+    } > "$log_file"
+    if ( cd "$dir" && "${cmd_arr[@]}" ) >> "$log_file" 2>&1 </dev/null; then
+        echo "ready" > "$status_file"
+    else
+        echo "failed" > "$status_file"
+    fi
+}
+
+# Watch a repository for a NEW git worktree (one created by an agent's own
+# --worktree support, e.g. claude's .claude/worktrees/ or qwen's .qwen/
+# worktrees/) and run prepare_deps inside it. Runs detached and self-terminates
+# once it finds the worktree or hits the timeout. yolo does not own these
+# worktrees, so watching `git worktree list` is the location-agnostic way to
+# find them regardless of each tool's directory convention.
+watch_and_prepare_deps() {
+    local repo_root="$1"
+    local timeout="${2:-${YOLO_DEPS_WATCH_TIMEOUT:-120}}"
+
+    local before
+    before="$( git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' )"
+
+    (
+        local waited=0 nap now path newpath
+        while (( waited < timeout )); do
+            # Poll every 3s, but never sleep past the timeout (keeps it a real
+            # upper bound, including small test values of YOLO_DEPS_WATCH_TIMEOUT).
+            nap=$(( timeout - waited )); (( nap > 3 )) && nap=3
+            sleep "$nap"
+            waited=$(( waited + nap ))
+            # Bail out if the repo disappeared (session ended / cleanup).
+            git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1 || exit 0
+            now="$( git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' )"
+            newpath=""
+            while IFS= read -r path; do
+                [[ -z "$path" ]] && continue
+                if ! grep -Fxq -- "$path" <<< "$before"; then
+                    newpath="$path"
+                    break
+                fi
+            done <<< "$now"
+            if [[ -n "$newpath" ]]; then
+                # Install synchronously (outside the read loop) so this watcher
+                # stays alive until the install finishes; its parent agent
+                # session outlives it.
+                prepare_deps "$newpath"
+                exit 0
+            fi
+        done
+    ) </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
 }
 
 # Get the appropriate flags for a command
@@ -1162,7 +1362,7 @@ run_multi_agents() {
         esac
 
         # Create dedicated worktree for each agent
-        if ! create_worktree "$agent"; then
+        if ! create_worktree "$agent" "$dry_run_flag"; then
             return 1
         fi
         # create_worktree sets globals: YOLO_WORKTREE_PATH, YOLO_BRANCH_NAME, YOLO_REPO_ROOT
@@ -1530,6 +1730,15 @@ main() {
                 auto_clean="no"
                 shift
                 ;;
+            -wn|--worktree-no-install)
+                use_worktree=true
+                YOLO_INSTALL_DEPS=false
+                shift
+                ;;
+            --no-install)
+                YOLO_INSTALL_DEPS=false
+                shift
+                ;;
             -e|--editor)
                 use_editor=true
                 shift
@@ -1677,6 +1886,23 @@ main() {
             if [[ -n "$auto_clean" ]]; then
                 print_warning "-c/--clean and -nc/--no-clean are ignored with '$command_name -w' ($command_name manages cleanup)"
             fi
+            # yolo does not own the worktree the tool is about to create, so we
+            # cannot run prepare_deps directly. Instead, watch the repo for the
+            # new worktree to appear and install dependencies there in the
+            # background. Skipped in dry-run and when -wn / --no-install is set.
+            if [[ "$dry_run" != "true" ]]; then
+                case "${YOLO_INSTALL_DEPS:-true}" in
+                    false|0|no|off) : ;;
+                    *)
+                        local _deps_repo_root
+                        _deps_repo_root="$(get_repo_root)"
+                        if [[ -n "$_deps_repo_root" ]]; then
+                            print_info "deps: will auto-install in $command_name's new worktree once it appears (disable with -wn / --no-install)"
+                            watch_and_prepare_deps "$_deps_repo_root"
+                        fi
+                        ;;
+                esac
+            fi
         else
             # gemini/qwen have a native --worktree but it isn't usable here
             # (flag missing on this version, or gemini's experimental.worktrees
@@ -1684,7 +1910,7 @@ main() {
             if [[ "$command_name" == "gemini" || "$command_name" == "qwen" ]]; then
                 print_info "$command_name's native --worktree is unavailable here; falling back to a yolo-managed worktree"
             fi
-            if ! create_worktree "$command_name"; then
+            if ! create_worktree "$command_name" "$dry_run"; then
                 exit 1
             fi
             # create_worktree sets YOLO_BRANCH_NAME, YOLO_WORKTREE_PATH, YOLO_REPO_ROOT
