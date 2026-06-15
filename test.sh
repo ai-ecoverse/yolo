@@ -154,6 +154,7 @@ test_command_flags() {
         "qwen:--yolo"
         "kimi:--yolo"
         "aider:--yes-always"
+        "agy:--dangerously-skip-permissions"
         "unknown-tool:--yolo"
     )
 
@@ -219,6 +220,34 @@ EOF
         fi
     else
         print_info "Skipping qwen -i test (command not executed)"
+    fi
+
+    rm -f "$test_script"
+}
+
+# Test 5e: Agy gets -i and --add-dir when prompt is provided (single-agent)
+test_agy_interactive_with_prompt() {
+    print_test_header "Test 5e: Agy -i and --add-dir Added With Prompt"
+    run_test
+
+    # Create a dummy agy that just echoes its arguments
+    local test_script="/tmp/agy"
+    cat > "$test_script" << 'EOF'
+#!/bin/bash
+echo "$@"
+EOF
+    chmod +x "$test_script"
+
+    # Run yolo agy with a positional prompt
+    local output
+    if output=$(PATH="/tmp:$PATH" run_with_timeout "$YOLO_TEST_TIMEOUT" "$YOLO_CMD" agy "hello world" 2>&1); then
+        if echo "$output" | grep -F -q -- "-i" && echo "$output" | grep -F -q -- "hello world" && echo "$output" | grep -F -q -- "--add-dir"; then
+            print_pass "yolo agy adds -i, --add-dir and passes prompt"
+        else
+            print_fail "yolo agy should add -i, --add-dir and pass prompt (got: $output)"
+        fi
+    else
+        print_info "Skipping agy -i test (command not executed)"
     fi
 
     rm -f "$test_script"
@@ -1047,6 +1076,7 @@ main() {
     test_no_command_error
     test_command_flags
     test_qwen_interactive_with_prompt
+    test_agy_interactive_with_prompt
     test_kimi_command_with_prompt
     test_kimi_cli_detection
     test_aider_prompt_injection
