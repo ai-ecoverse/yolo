@@ -101,7 +101,7 @@ yolo -w
 yolo --dry-run
 ```
 
-When you run `yolo` without specifying a command, it scans your system for all installed supported coding agents (codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, qwen, kimi, crush, aider, goose) and picks one at random. You only live yolo - even choosing your AI assistant is too much commitment!
+When you run `yolo` without specifying a command, it scans your system for all installed supported coding agents (codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, qwen, kimi, crush, aider, goose, auggie, grok, pi, agy) and picks one at random. You only live yolo - even choosing your AI assistant is too much commitment!
 
 ### Basic Usage
 
@@ -319,6 +319,7 @@ Use `--mop` to clean up orphaned worktrees from interrupted sessions or when you
 | `goose` | *(no flags - prompts passed via stdin)* |
 | `grok` | `--yolo` (Grok Build by xAI) |
 | `pi` | *(no flags — pi is YOLO by default; auto-approves all tool calls with no permission prompts, matching yolo's intent natively)* |
+| `agy` | `--dangerously-skip-permissions` (+ `-i` when prompt present) |
 | *(other)* | `--yolo` |
 
 ### Examples
@@ -396,7 +397,7 @@ When you run `yolo` without specifying a command:
 yolo
 
 # YOLO does:
-# 1. Scans PATH for installed agents (codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, qwen, kimi, crush, aider, goose)
+# 1. Scans PATH for installed agents (codex, claude, copilot, droid, amp, cursor-agent, opencode, gemini, qwen, kimi, crush, aider, goose, auggie, grok, pi, agy)
 # 2. Picks one at random using $RANDOM
 # 3. Adds appropriate flags for that agent
 # 4. Launches it
@@ -662,6 +663,9 @@ YOLO works with the following AI coding assistants:
 | **Crush** | [charm.sh/crush](https://charm.sh/crush) | Charm's interactive CLI tool for software engineering tasks |
 | **Aider** | [github.com/paul-gauthier/aider](https://github.com/paul-gauthier/aider) | AI pair programmer in your terminal |
 | **Goose** | [github.com/block/goose](https://github.com/block/goose) | Block's open-source AI coding agent (Square, Cash App, Afterpay) |
+| **Grok** | [x.ai](https://x.ai) | xAI's agentic model with built-in worktree support |
+| **Pi** | [github.com/earendil-works/pi](https://github.com/earendil-works/pi) | YOLO-by-default coding assistant |
+| **Agy** | [github.com/google-deepmind/antigravity](https://github.com/google-deepmind/antigravity) | Antigravity AI pair programming agent |
 
 ## Related Projects
 
