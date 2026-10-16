@@ -25,7 +25,7 @@ NC='\033[0m' # No Color
 
 # Single source of truth for supported AI coding agents.
 # This list must be kept in sync with the case arms in get_default_flags().
-SUPPORTED_AGENTS=("codex" "claude" "copilot" "droid" "amp" "cursor-agent" "opencode" "qwen" "gemini" "kimi" "crush" "aider" "goose" "auggie" "grok" "pi")
+SUPPORTED_AGENTS=("codex" "claude" "copilot" "droid" "amp" "cursor-agent" "opencode" "qwen" "gemini" "kimi" "crush" "aider" "goose" "auggie" "grok" "pi" "agy")
 
 # Enable colored output if stdout is a terminal
 if [[ -t 1 ]]; then
@@ -129,6 +129,7 @@ Supported Commands:
   auggie            Uses --allow-indexing; adds --print when prompt present
   grok              Uses --yolo (Grok Build by xAI)
   pi                No extra flags (pi is YOLO by default; auto-approves all tool calls with no permission prompts, matching yolo's intent natively)
+  agy               Uses --dangerously-skip-permissions; adds -i when prompt present
   <other>           Adds --yolo (generic fallback)
 
 Multi-agent Mode:
@@ -272,7 +273,7 @@ create_worktree() {
     # Sanitize the command name for use in branch names
     local sanitized_name
     sanitized_name="$(sanitize_branch_name "$command_name")"
-    
+
     # Find the lowest available number for this agent
     local agent_number=1
     while git rev-parse --verify "$sanitized_name-$agent_number" >/dev/null 2>&1 || \
@@ -558,6 +559,10 @@ get_command_flags() {
             # tool calls with no permission prompts, matching yolo's intent).
             # See https://github.com/earendil-works/pi/discussions/3169 (same as goose)
             echo ""
+            ;;
+        agy)
+            # AGY (Anti Gravity) uses --dangerously-skip-permissions for auto-approval
+            echo "--dangerously-skip-permissions"
             ;;
         *)
             echo "--yolo"
@@ -1346,6 +1351,21 @@ run_multi_agents() {
                 fi
                 agent_prompts+=("")  # auggie handles prompts via --print flag
                 ;;
+            agy)
+                # agy: add -i when prompt present to remain interactive
+                cmd_arr+=("$agent")
+                if [[ -n "$flags" ]]; then
+                    # shellcheck disable=SC2206
+                    local flag_array=($flags)
+                    cmd_arr+=("${flag_array[@]}")
+                fi
+                if (( ${#common_args[@]} )); then
+                    local prompt_joined
+                    prompt_joined=$(printf '%s ' "${common_args[@]}"); prompt_joined=${prompt_joined%% }
+                    cmd_arr+=("-i" "$prompt_joined")
+                fi
+                agent_prompts+=("")  # agy handles prompts via -i flag
+                ;;
             *)
                 # Default: flags + positional prompt if provided
                 cmd_arr+=("$agent")
@@ -1369,9 +1389,9 @@ run_multi_agents() {
         agent_paths+=("$YOLO_WORKTREE_PATH")
         agent_branches+=("$YOLO_BRANCH_NAME")
 
-        # If copilot or kimi, add --add-dir for worktree directory (copilot only)
-        if [[ "$agent" == "copilot" ]]; then
-            # Add --add-dir to trust the worktree directory
+        # If copilot or agy, add --add-dir for worktree directory
+        if [[ "$agent" == "copilot" || "$agent" == "agy" ]]; then
+            # Add --add-dir to trust/add the worktree directory
             cmd_arr+=(--add-dir "$YOLO_WORKTREE_PATH")
         fi
 
@@ -1586,7 +1606,7 @@ mop_cleanup() {
             print_success "Deleted branch: $branch"
             ((branch_count++))
         fi
-    done < <(git branch | sed 's/^[* ] //' | grep -E '^(claude|codex|copilot|amp|opencode|gemini|qwen|droid|cursor-agent|kimi|crush|aider|goose|auggie)-[0-9]+$')
+    done < <(git branch | sed 's/^[* ] //' | grep -E '^(claude|codex|copilot|amp|opencode|gemini|qwen|droid|cursor-agent|kimi|crush|aider|goose|auggie|grok|pi|agy)-[0-9]+$')
 
     if (( branch_count == 0 )); then
         print_info "No agent branches found"
@@ -1798,19 +1818,19 @@ main() {
         while IFS= read -r agent; do
             all_agents+=("$agent")
         done < <(get_installed_agents)
-        
+
         if [[ ${#all_agents[@]} -eq 0 ]]; then
             print_error "no supported coding agents found in PATH"
             local IFS=', '
             print_info "Supported agents: ${SUPPORTED_AGENTS[*]}"
             exit 1
         fi
-        
+
         # Join agents with commas
         local agent_csv
         agent_csv=$(IFS=','; echo "${all_agents[*]}")
         print_success "Found ${#all_agents[@]} agents: $agent_csv"
-        
+
         # Collect remaining arguments as prompt if provided
         local -a waddan_args=()
         if [[ -n "$command_name" ]]; then
@@ -1819,7 +1839,7 @@ main() {
                 waddan_args+=("${command_args[@]}")
             fi
         fi
-        
+
         run_multi_agents "$agent_csv" "$dry_run" "$auto_clean" "${waddan_args[@]+"${waddan_args[@]}"}"
         exit $?
     fi
@@ -2132,6 +2152,22 @@ main() {
             if (( ${#command_args[@]} )); then
                 full_command+=("${command_args[@]}")
             fi
+            ;;
+        agy)
+            if [[ -n "$flags" ]]; then
+                # shellcheck disable=SC2206
+                local flag_array=($flags)
+                full_command+=("${flag_array[@]}")
+            fi
+            if (( ${#command_args[@]} )); then
+                local prompt_joined
+                prompt_joined=$(printf '%s ' "${command_args[@]}"); prompt_joined=${prompt_joined%% }
+                full_command+=("-i" "$prompt_joined")
+            fi
+            # Trust/add the current directory explicitly
+            local trust_dir
+            trust_dir=$(pwd)
+            full_command+=(--add-dir "$trust_dir")
             ;;
         *)
             if [[ -n "$flags" ]]; then
